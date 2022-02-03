@@ -1,0 +1,376 @@
+# Correspondence Analysis {#ca}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+# devtools::install_github("herveabdi/PTCA4CATA") # you only need this line of code if you haven't downloaded the package
+# install.packages("gridExtra")
+# install.packages("ggplotify")
+# install.packages("grid")
+library(devtools)
+library(InPosition)
+library(ggplot2)
+library(corrplot)
+library(PTCA4CATA)
+library(data4PCCAR)
+library(readxl)
+library(kableExtra)
+
+# The following three functions allow you to arrange your plots in Rmarkdown
+library(gridExtra)
+library(ggplotify)
+library(grid)
+```
+## Method: Correspondence analysis
+
+*Correspondence analysis* is generalized principal component analysis for qualitative data. It can be used to analyze one data table by transforming it into two sets of factor scores. The factor scores represent the similarity structure between the rows and columns. Elements have *masses* and *weights*. The mass of each row represents its importance in the table, i.e., the mass of row i is the proportion of i with respect to the entire table. On the other hand, columns have weights, which reflect the information that a column provides to the identification of a given row. 
+
+There are two kinds of plots - *symmetric* and *asymmetric*. Asymmetric plots can be interpreted in a straightforward manner - the distance between the row and column factor scores is directly interpretable. In a symmetric plot, one of the factor scores is normed/standardized before plotting. 
+
+## Data set: Powder soft drinks and emotions
+
+Researchers evaluated whether different orange flavor profiles would be better associated with the Tang brand, with respect to emotional response. All 73 respondents were women from Argentina, with 50% aged between 25 and 35 years and the rest between 36 and 49 years. Only one question was asked - how do you feel when you taste the product? Participants were presented with the stimuli (orange juice) in a sequential monadic way and they could choose an emotion, all related to the product, from a list. 
+
+```{r data_setCA, echo=FALSE}
+# Get the data ----
+X <- read_excel("8. Emotions powder soft drinks Argentina.xlsx")
+
+X <- X[,-1]
+
+X <- sapply(X, as.numeric)
+
+X <- as.matrix(X)
+
+row.names(X) <- c("Tang", "Juicy orange", "Juicy - peely orange", "Peely orange", "Albedo orange", "Sweet orange")
+
+inputforscroll <- kable(X)
+
+scroll_box(inputforscroll, height = "400px")
+
+```
+
+### Chi-square  matrix
+
+Unlike PCA, correspondence analysis takes into account chi-square values, so we generate a chi-square matrix instead of the standard correlation plot. 
+
+In contrast to the correlation plot which tells us how two variables "move" together/in opposite directions, the chi-square matrix shows us the distance between the two variables. This is more interpretable when the data is qualitative (in this case, the choice of emotions associated with orange juice flavors).
+
+
+
+```{r GetChi2-1CA, , echo=FALSE}
+# get Chi2 -- we can use the available package to get the Chi2
+chi2    <-  chisq.test(X)
+```
+
+```{r GetChi2-2CA, e, echo=FALSE, results='hide'}
+# Components of chi2: the chi-squares for each cell before we add them up to compute the chi2
+Inertia.cells <- chi2$residuals / sqrt(sum(X))
+# To be Plotted
+
+# You can always compute it directly from the data
+Z <- as.matrix(X/sum(X)) # observed 
+r <- as.matrix(rowSums(Z)) # expected for each row
+c <- as.matrix(colSums(Z)) # expected for each column
+# Inertia.cells 
+test.Inertia.cells <- diag( as.vector(r^(-1/2)) ) %*% 
+                     (Z - r%*%t(c) ) %*% diag(as.vector(c^(-1/2)))
+
+```
+
+
+
+```{r corplotCA, echo=FALSE}
+corrplot(Inertia.cells, is.cor = FALSE,  addgrid.col = "black", tl.col = "black", tl.cex = 1) 
+
+a0.residuals <- recordPlot()
+```
+
+### Analysis
+
+```{r analyzeCA, cache=TRUE, results='hide', echo=TRUE, message=FALSE, warning=FALSE}
+# run CA
+resCA.sym  <- epCA(X, symmetric = TRUE, graphs = FALSE)
+resCAinf.sym4bootJ  <- epCA.inference.battery(X, symmetric = TRUE, graphs = FALSE, test.iters = 25)
+resCAinf.sym4bootI  <- epCA.inference.battery(t(X), symmetric = TRUE, graphs = FALSE, test.iters = 25)
+
+```
+
+```{r, echo=FALSE}
+
+# to run a plain CA but asymmetric
+# this is using the columns as the simplex (you can also use rows by running epCA with t(X))
+resCA.asym <- epCA(X, symmetric = FALSE, graphs = FALSE)
+# HA as sup ---- (I project these onto the summetric results, you can do them with asymmetric results too)
+#HA.sup <- supplementaryRows(SUP.DATA = HApunct, res = resCA.sym)
+# Other punct ----
+#punct.sup <- supplementaryCols(SUP.DATA = otherPunct, res = resCA.sym)
+
+```
+
+```{r fastCA, echo=FALSE}
+res_fast_perm <- data4PCCAR::fastPerm4CA(X, nIter = 10000, compact = FALSE)
+res_fast_boot <- data4PCCAR::fastBoot4CA(X)
+```
+
+
+### Scree Plot
+
+The scree plot shows the dimensions extracted from the correspondence analysis and how much variance they contribute to the dataset. In this case, dimension 1 contributes about 45% of the variance and dimension 2 contributes about 25%. 
+
+```{r scree plotCA, echo=FALSE}
+factoextra::fviz_screeplot(resCA.sym, addlabels =TRUE, main = "PCA: Explained Variance per Dimension")
+my.scree <- recordPlot() # you need this line to be able to save them in the end
+```
+
+```{r toplotCA, echo=FALSE}
+# Here are the factor scores you need
+Fj.a <- resCA.asym$ExPosition.Data$fj
+Fi   <- resCA.sym$ExPosition.Data$fi
+Fj   <- resCA.sym$ExPosition.Data$fj
+
+# constraints -----
+# first get the constraints correct
+constraints.sym  <- minmaxHelper(mat1 = Fi, mat2  = Fj)
+constraints.asym <- minmaxHelper(mat1 = Fi, mat2  = Fj.a)
+#constraints.sup  <- minmaxHelper(mat1 = rbind(Fi, HA.sup$fii), 
+                                #mat2  = rbind(Fj, punct.sup$fjj) )
+
+# Get some colors ----
+color4Authors <- prettyGraphsColorSelection(n.colors = nrow(Fi))
+# baseMaps ----
+colnames(Fi) <- paste("Dimension ", 1:ncol(Fi))
+colnames(Fj) <- paste("Dimension ", 1:ncol(Fj))
+colnames(Fj.a) <- paste("Dimension ", 1:ncol(Fj.a))
+
+```
+
+
+### Asymmetric plot
+
+Interpretation:
+
++ Dispersion of the data points in the simplex - The unpleasant emotions are grouped together, while the happy emotions are grouped together (as we would expect intuitively). The distinctness is clear along dimension 1. 
+
++ Eigenvalue - In both dimensions, the eigenvalues are relatively small, but dimension 1 explains almost half (47%) the inertia in the dataset. 
+
+The distances between the flavors of orange juice and the emotional outcome are directly interpretable in the asymmetric plot. Tang is closely associated with "Desired", while Juicy Orange is associated with "Interested" for example. 
+
+```{r asym_factor_scoresCA, echo=FALSE}
+# Your asymmetric factor scores
+asymMap  <- createFactorMapIJ(Fi,Fj.a)
+# With supplementary elements
+#mapSup <- createFactorMapIJ(as.data.frame(HA.sup$fii), 
+#                           as.data.frame(punct.sup$fjj)  ,
+#                            col.points.i = "Orange",
+#                            col.labels.i = 'Orange' ,
+#                            font.face.i = 'italic',
+#                            alpha.labels.i = .8,
+#                            alpha.points.i = .8,
+#                            col.points.j = 'Pink',
+#                            col.labels.j = 'Pink',
+#                            alpha.labels.j = .9,
+#                            font.face.j = 'italic',
+#                            alpha.points.j = .8,
+ #                           constraints = constraints.sup
+#)
+# Make the simplex visible
+zePoly.J <-  PTCA4CATA::ggConvexHull(Fj.a, 
+                                     x_axis = 1,
+                                     y_axis = 2,
+                                     percentage = 0.66,
+                                     col.line = 'darkorchid4',
+                                     col.hull = 'darkorchid',
+                                     line.size = 0.4,
+                                     alpha.line = 0.6,
+                                     alpha.hull = 0.1,
+                                     names.of.factors = "Dimension")
+# Labels
+labels4CA <- createxyLabels(resCA = resCA.asym)
+
+# Combine all elements you want to include in this plot
+map.I.asym <- asymMap$baseMap + zePoly.J + 
+                          asymMap$I_points + asymMap$I_labels +
+                          asymMap$J_labels + asymMap$J_points + 
+                          labels4CA + 
+ggtitle('Asymmetric Map with Simplex') 
+map.I.asym
+```
+
+### Symmetric plot
+
+Unlike the asymmetric plot, the distance between the row and column scores is not directly interpretable since one of them is scaled/normed. The symmetric plot is more useful for understanding the intra row/column distances and relationships. 
+
+```{r sym_factor_scoresCA, echo=FALSE}
+# factor scores
+symMap  <- createFactorMapIJ(Fi,Fj)
+# supplementary elements
+#mapSup <- createFactorMapIJ(as.data.frame(HA.sup$fii), 
+#                            as.data.frame(punct.sup$fjj)  ,
+#                            col.points.i = "Orange",
+#                            col.labels.i = 'Orange' ,
+#                            font.face.i = 'italic',
+#                            alpha.labels.i = .8,
+#                            alpha.points.i = .8,
+#                            col.points.j = 'Pink',
+#                            col.labels.j = 'Pink',
+#                            alpha.labels.j = .9,
+#                            font.face.j = 'italic',
+#                            alpha.points.j = .8,
+#                            constraints = constraints.sup
+#)
+labels4CA <- createxyLabels(resCA = resCA.sym)
+
+# Combine all elements you want to include in this plot
+map.I.sym <- symMap$baseMap + zePoly.J + 
+                          symMap$I_points + symMap$I_labels +
+                          symMap$J_labels + symMap$J_points + 
+                          labels4CA + 
+ggtitle('Symmetric Map') 
+map.I.sym
+```
+
+
+### Contributions and bootstrap ratios barplots
+
+Contribution barplots indicate which variables contribute the most significantly to the dataset. The bootstrap ratio barplots show which variables cross the threshold when our data is resampled several times. Basically, whether the same variables hold good (in terms of significant contributions) even after the same experiment is repeated several times. 
+
+```{r ctr_barsCA, echo=FALSE, graphs = FALSE}
+signed.ctrI <- resCA.sym$ExPosition.Data$ci * sign(resCA.sym$ExPosition.Data$fi)
+signed.ctrJ <- resCA.sym$ExPosition.Data$cj * sign(resCA.sym$ExPosition.Data$fj)
+
+# plot contributions of rows for component 1
+ctrI.1 <- PrettyBarPlot2(signed.ctrI[,1],
+                         threshold = 1 / NROW(signed.ctrI),
+                         font.size = 3,
+                        horizontal = F,
+                         color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fi.col), # we need hex code
+                         ylab = 'Contributions',
+                         ylim = c(1.2*min(signed.ctrI), 1.2*max(signed.ctrI))
+) + ggtitle("Component 1", subtitle = 'rows')
+
+# plot contributions of columns for component 1
+ctrJ.1 <- PrettyBarPlot2(signed.ctrJ[,1],
+                         threshold = 1 / NROW(signed.ctrJ),
+                         font.size = 3,
+                        horizontal = F,
+                         color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fj.col), # we need hex code
+                         ylab = 'Contributions',
+                         ylim = c(1.2*min(signed.ctrJ), 1.2*max(signed.ctrJ))
+) + ggtitle("", subtitle = 'columns')
+
+# plot contributions of rows for component 2
+ctrI.2 <- PrettyBarPlot2(signed.ctrI[,2],
+                         threshold = 1 / NROW(signed.ctrI),
+                         font.size = 3,
+                         horizontal = F,
+                         color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fi.col), 
+                         ylab = 'Contributions',
+                         ylim = c(1.2*min(signed.ctrI), 1.2*max(signed.ctrI))
+) + ggtitle("Component 2", subtitle = 'rows')
+
+# plot contributions of columns for component 2
+ctrJ.2 <- PrettyBarPlot2(signed.ctrJ[,2],
+                         threshold = 1 / NROW(signed.ctrJ),
+                         font.size = 3,
+                         horizontal = F,
+                         color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fj.col), 
+                         ylab = 'Contributions',
+                         ylim = c(1.2*min(signed.ctrJ), 1.2*max(signed.ctrJ))
+) + ggtitle("", subtitle = 'columns')
+
+```
+
+```{r, echo=FALSE, graphs=FALSE}
+grid.arrange(
+    as.grob(ctrI.1),as.grob(ctrJ.1),as.grob(ctrI.2),as.grob(ctrJ.2),
+    ncol = 2,nrow = 2,
+    top = textGrob("Contributions", gp = gpar(fontsize = 18, font = 3))
+  )
+Ctr.IJ <- recordPlot() # you need this line to be able to save them in the end
+```
+
+
+``` {r BRCA, echo=FALSE, graphs = FALSE}
+BR.I <- resCAinf.sym4bootI$Inference.Data$fj.boots$tests$boot.ratios
+BR.J <- resCAinf.sym4bootJ$Inference.Data$fj.boots$tests$boot.ratios
+
+laDim = 1
+
+# Plot the bootstrap ratios for Dimension 1
+ba001.BR1.I <- PrettyBarPlot2(BR.I[,laDim],
+                        threshold = 2,
+                        font.size = 3,
+                   color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fi.col), # we need hex code
+                  ylab = 'Bootstrap ratios',
+                  horizontal = F
+                  #ylim = c(1.2*min(BR[,laDim]), 1.2*max(BR[,laDim]))
+) + ggtitle(paste0('Component ', laDim), subtitle = 'rows')
+
+ba002.BR1.J <- PrettyBarPlot2(BR.J[,laDim],
+                        threshold = 2,
+                        font.size = 3,
+                   color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fj.col), # we need hex code
+                  ylab = 'Bootstrap ratios',
+                  horizontal = F
+                  #ylim = c(1.2*min(BR[,laDim]), 1.2*max(BR[,laDim]))
+) + ggtitle("", subtitle = 'columns')
+
+# Plot the bootstrap ratios for Dimension 2
+laDim = 2
+ba003.BR2.I <- PrettyBarPlot2(BR.I[,laDim],
+                        threshold = 2,
+                        font.size = 3,
+                   color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fi.col), # we need hex code
+                  ylab = 'Bootstrap ratios',
+                  horizontal = F
+                  #ylim = c(1.2*min(BR[,laDim]), 1.2*max(BR[,laDim]))
+) + ggtitle(paste0('Component ', laDim), subtitle = 'rows')
+
+ba004.BR2.J <- PrettyBarPlot2(BR.J[,laDim],
+                        threshold = 2,
+                        font.size = 3,
+                   color4bar = gplots::col2hex(resCA.sym$Plotting.Data$fj.col), # we need hex code
+                  ylab = 'Bootstrap ratios',
+                  horizontal = F
+                  #ylim = c(1.2*min(BR[,laDim]), 1.2*max(BR[,laDim]))
+) + ggtitle("", subtitle = 'columns')
+
+```
+
+```{r grid_BRCA, echo=FALSE, graphs=FALSE}
+grid.arrange(
+    as.grob(ba001.BR1.I),as.grob(ba002.BR1.J),as.grob(ba003.BR2.I),as.grob(ba004.BR2.J),
+    ncol = 2,nrow = 2,
+    top = textGrob("Bootstrap ratios", gp = gpar(fontsize = 18, font = 3))
+  )
+BR.IJ <- recordPlot() # you need this line to be able to save them in the end
+```
+
+
+
+```{r, echo=FALSE}
+grid.arrange(
+     as.grob(ctrI.1),as.grob(ctrJ.1),as.grob(ctrI.2),as.grob(ctrJ.2),as.grob(ba001.BR1.I),as.grob(ba002.BR1.J),as.grob(ba003.BR2.I),as.grob(ba004.BR2.J),
+    ncol = 4,nrow = 2,
+    top = textGrob("Contribution   &   Bootstrap ratios", gp = gpar(fontsize = 18, font = 3))
+  )
+Both.IJ <- recordPlot() # you need this line to be able to save them in the end
+```
+
+
+```{r, echo=FALSE}
+#Here we can save all figures to a PowerPoint
+# savedList <- saveGraph2pptx(file2Save.pptx = 'AllFigures_CA', 
+#                              title = 'All Figures for CA', 
+#                              addGraphNames = TRUE)
+
+```
+
+## Summary
+
+When we interpret the factor scores and loadings together, the CA revealed:
+
+* Preferred plot - Asymmetric (distance between row and column factor scores is directly interpretable)
+
+* Dimension 1: The Tang brand was associated with feelings of comfort and familiarity, while Peely orange was associated with unpleasant feelings. 
+
+* Dimension 2: Sweet orange and Juicy-peely orange were associated with positive emotions such as "Energetic".

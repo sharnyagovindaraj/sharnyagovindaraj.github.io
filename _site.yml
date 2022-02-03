@@ -1,0 +1,20 @@
+delete_merged_file: true 
+language:
+  ui:
+    chapter_name: "Chapter "
+new_session: yes #This is needed to do Knit-Merge. See https://bookdown.org/yihui/bookdown/new-session.html
+book_filename: "Sharnya's Cookbook"
+
+name: "stats-website"
+navbar:
+  title: "Multivariate Statistics"
+  # left:
+  #   - text: "Home"
+  #     href: index.html
+  # right: 
+  #   - icon: fa-envelope fa-lg
+  #     href: mailto:<cats@catemail.com>
+  #   - icon: fa-github fa-lg
+  #     href: http://github.com/<YOUR_GH_NAME>/
+output:
+  html_document

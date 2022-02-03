@@ -1,0 +1,459 @@
+# Barycentric Discriminant Analysis {#bada}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+# Clean start
+rm(list = ls())
+graphics.off()
+gc()
+#_________________________________________________
+# parameters for pptx ----
+leTitre   <- 'BADA: Audio features'
+leDir     <- paste0(getwd(),'/')    # Where am I
+filename  <- 'BADA4AudioFeatures' # my title
+path2save <-  paste0(leDir, filename)
+#_________________________________________________
+#_________________________________________________
+# Preamble ----
+# libraries ----
+library(tidyverse)
+library(ExPosition)
+devtools::install_github("LukeMoraglia/ExPosition1/TExPosition")
+devtools::install_github("LukeMoraglia/ExPosition1/TInPosition")
+library(TExPosition)
+library(TInPosition)
+library(PTCA4CATA)
+# devtools::install_github('HerveAbdi/data4PCCAR')
+library(data4PCCAR)
+library(kableExtra)
+library(dplyr)
+library(corrplot)
+library(broom)
+```
+
+## Method: Barycentric Discriminant Analysis (BADA)
+
+Discriminant analysis is focused on grouping observations into categories. Barycentric Discriminant Analysis is employed to analyze multiple variables describing a set of observations in which each observation belongs to one and only one category. The categories are predefined. 
+
+BADA creates new combinations of the variables that best separate the groups in the data table. Using these new variables, a fresh observation measured using the same variables can placed in a category. The accuracy of placing the new observation into a category correctly is also calculated using cross validation techniques. 
+
+Source - https://bit.ly/3k37ceO 
+
+## Data set: Audio features
+This is a dataset which describes audio features of songs in Spotify playlists. Specifically, the music.track dataset measures 165 songs on 16 variables, of which 11 are quantitative. Some of the audio features described are acousticness, danceability, and energy. 
+
+
+```{r datasetBADA, echo=FALSE}
+load("audio-feature.RData")
+rawData <- music.track
+
+
+                      
+drop <- c("id")
+rawData = rawData[,!(names(rawData) %in% drop)]
+Xmat <-  rawData[, c(4, 5, 6, 7, 8, 10, 11, 13, 14, 16)]
+Ymat <-  rawData[, c(9, 12, 15)]
+XYmat <- rawData[, 4:16]
+
+inputforscroll <- kable(XYmat)
+
+scroll_box(inputforscroll, height = "250px")
+```
+
+### Analysis
+
+
+```{r BADA, echo=TRUE}
+# Run BADA  ----
+resBADA <- tepBADA(XYmat, DESIGN = rawData$genre,
+                   graphs = FALSE)
+XYmat <- na.omit(XYmat)
+```
+
+```{r infBADA, echo=TRUE, results = 'hide'}
+nIter = 1000
+resBADA.inf <- tepBADA.inference.battery(XYmat, 
+                  DESIGN = rawData$genre,
+                  test.iters = nIter,
+                  graphs = FALSE)
+```
+
+### Heatmap
+
+The heatmap is simply a visual representation of the relationship between the variables and the genres of songs. As we can see, the most distinct relationship is between sleep songs and audio features of acousticness and instrumentalness (positive). On the other hand, sleep songs and energy have a negative relationship.  
+
+
+```{r, echo=FALSE}
+Xmat_scaled <- scale(Xmat, center = TRUE, scale = TRUE)
+
+color4Var <- prettyGraphs::prettyGraphsColorSelection(
+  ncol(XYmat))
+
+CorrMeans <- PTCA4CATA::getMeans(Xmat_scaled, rawData$genre, FUN = mean)
+corrplot(as.matrix(CorrMeans), is.corr = FALSE, addgrid.col = "black", tl.col = color4Var, tl.cex = 1, method = "color", col = colorRampPalette(c("violetred4", "white", "navyblue"))(200))
+
+a0.heatmap <- recordPlot()
+
+```
+
+
+### The Scree plot
+
+The scree plot shows us how many dimensions contribute to the variance in the data. In this plot, Dim 1 contributes more than 80% or the variance. Hence, it would be a good place to start. 
+
+```{r, echo=FALSE}
+# The ScreePlot. Fixed Effects. ----
+# Get the ScreePlot
+# scree for ev ----
+PlotScree(ev = resBADA$TExPosition.Data$eigs,
+   title = 'BADA Audio features: Inertia Scree Plot',
+   plotKaiser = TRUE, 
+   color4Kaiser = ggplot2::alpha('darkorchid4', .5),
+   lwd4Kaiser  = 2)
+# Save the plot for pptx
+a0002.Scree.sv <- recordPlot()
+```
+
+```{r, echo=FALSE}
+#Colors for the graphs
+genreColors <- rawData$genre
+# get colors for graphs
+genreColors <- recode(genreColors, 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+```
+
+### Map of row factors
+
+This plot shows us the distribution of all elements in the data table. They are colored as per the genre, and we also see the group means marked. So pretty! 
+
+```{r, echo=FALSE}
+#  Observations and means ----
+# Observations ----
+#_________________________________________________
+# I-set map ----
+# a graph of the observations
+Imap <- PTCA4CATA::createFactorMap(
+  resBADA$TExPosition.Data$fii,
+  col.points = genreColors,
+  col.labels = genreColors,
+  alpha.points = .35,
+  text.cex = 0,
+  display.labels = F,
+  cex = 2
+)
+
+#_________________________________________________
+# make labels ----
+label4Map <- createxyLabels.gen(1,2,
+          lambda = resBADA$TExPosition.Data$eigs,
+          tau = resBADA$TExPosition.Data$t)
+#_________________________________________________
+# Fix Fi ----
+# Note that current version of tepBADA 
+# has a scaling problem
+# Will soon be fixed
+# wineMeans <- resBADA$TExPosition.Data$fi 
+# code when BQDQ is fixed
+audioMeans <- PTCA4CATA::getMeans(
+               resBADA$TExPosition.Data$fii, 
+               rawData$genre)
+# a vector of color for the means
+# Explicit recoding to make sure 
+# that the names match
+# => Needs to be improved!
+col4Means <- recode(rownames(audioMeans), 
+                      dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+names(col4Means) <- rownames(audioMeans)
+# the map
+MapGroup <- PTCA4CATA::createFactorMap(audioMeans,
+             # use the constraint from the main map
+             constraints = Imap$constraints,
+             col.points = col4Means,
+             cex = 4,  # size of the dot (bigger)
+             col.labels = col4Means,
+             text.cex = 4,
+             display.labels = T,
+             pch = 17,
+             alpha.points = 1)
+# The map with observations and group means
+a003.bada <- Imap$zeMap + 
+               label4Map +
+               MapGroup$zeMap_dots + 
+               MapGroup$zeMap_text
+print(a003.bada)
+
+```
+
+### Confidence intervals generated by bootstrapping
+
+The 95% confidence intervals around the group means are generated. They show the range of values the mean can assume 95% of the times the experiment is conducted, and the smaller the ellipsis, the higher confidence in the mean.
+
+```{r, echo=FALSE}
+# Confidence intervals
+# Bootstrapped CI ----
+#_________________________________________________
+# Create Confidence Interval Plots
+fi.boot <- resBADA.inf$Inference.Data$boot.data$fi.boot.data$boots
+# We want to use the rownames of fi.boot 
+# as reference to get the correct
+# color. 
+# However, the original rownames include "." 
+# and don't match with 
+# the original row names. 
+# So, the `sub` function was used to get rid of 
+# the "." by replacing all "." 
+# in the rownames of fi.boot as an empty 
+# string.
+rownames(fi.boot) <- sub("[[:punct:]]","",
+                          rownames(fi.boot))
+# use function MakeCIEllipses 
+# from package PTCA4CATA
+GraphElli <- PTCA4CATA::MakeCIEllipses(
+    resBADA.inf$Inference.Data$boot.data$fi.boot.data$boots,
+    col = col4Means[rownames(fi.boot)], 
+    # use rownames as reference to pick the color
+    p.level = .95
+)
+#_________________________________________________
+# create the I-map with Observations, 
+# means and confidence intervals
+#
+a004.bada.withCI <-  Imap$zeMap_background  + 
+                        Imap$zeMap_dots     + 
+                        MapGroup$zeMap_dots + 
+                        MapGroup$zeMap_text +
+                      GraphElli + label4Map +
+  ggtitle('BADA: Group Centers with CI and Observations')
+#_________________________________________________
+# plot it!
+dev.new()
+print(a004.bada.withCI)
+```
+
+### Row factors with hull
+
+Hulls are drawn around each group. 
+
+```{r, echo=FALSE}
+# with Hull ----
+Fii <- resBADA$TExPosition.Data$fii
+colnames(Fii) <- paste0('Dimension ', 1:ncol(Fii))
+# getting the color correct: an ugly trick
+col4Hull <- col4Means[match(names(col4Means), 
+                     levels(rawData$genre) )]
+GraphHull <- PTCA4CATA::MakeToleranceIntervals(
+                      Fii,
+                      design = rawData$genre,
+                      col = col4Hull,
+                # the next line is required 
+                # for some strange unknown reasons
+          names.of.factors =  c("Dim1","Dim2"),
+          p.level = 1.00)
+#
+a006.bada.withHull <-  Imap$zeMap_background  + 
+                          Imap$zeMap_dots     + 
+                          MapGroup$zeMap_dots + 
+                          MapGroup$zeMap_text +
+                          GraphHull           + 
+                          label4Map           +
+                          GraphElli +
+    ggtitle('BADA: Group Centers with Hulls and Observations')
+a006.bada.withHull
+
+```
+
+### Column factor scores
+
+This plot shows us the correlations between the different variables - the angle between 2 arrows is an indication of the strength of relationship. The direction of relationship can be determined by looking at which quadrants the arrows lie in. 
+
+```{r, echo=FALSE, results='hide'}
+# J-set ----
+# gt colors
+
+cJ <- resBADA$TExPosition.Data$cj
+color4Var <- prettyGraphs::prettyGraphsColorSelection(
+  nrow(cJ))
+col4X <- prettyGraphsColorSelection(
+                   n.colors = ncol(Xmat),
+                   starting.color = 42)
+
+col4Y <- prettyGraphsColorSelection(
+                    n.colors = ncol(Ymat),
+                    starting.color = 13)
+col4Var = c(col4X,col4Y)
+col4Var <- as.matrix(col4Var)
+#_________________________________________________
+Fj <- resBADA$TExPosition.Data$fj
+baseMap.j <- PTCA4CATA::createFactorMap(
+                        Fj,
+                        col.points   = col4Var,
+                        alpha.points =  .3,
+                        col.labels   = col4Var
+                        )
+print(baseMap.j)
+#_________________________________________________
+# arrows
+zeArrows <- addArrows(Fj, color = col4Var)
+# A graph for the J-set
+# A graph for the J-set
+b001.aggMap.j <- baseMap.j$zeMap_background + # background layer
+                      baseMap.j$zeMap_dots + 
+                      baseMap.j$zeMap_text +  # dots & labels
+                      label4Map 
+b002.aggMap.j <- b001.aggMap.j + zeArrows
+# We print this Map with the following code
+#dev.new()
+print(b002.aggMap.j)
+
+```
+
+
+### Contribution bar plots for dimension 1
+
+The contribution bar plots show how much each variable is contributing to a certain dimension. Bootstrap ratios that follow are derived from the inference battery. 
+
+```{r, echo=FALSE}
+#  Contributions ####
+#_________________________________________________
+#_________________________________________________
+# Ctr J-set 
+###### 1 ====
+# 
+ctrj <- resBADA$TExPosition.Data$cj
+signed.ctrj <- ctrj * sign(Fj)
+# BR1
+c001.plotCtrj.1 <- PrettyBarPlot2(
+           bootratio = round(100*signed.ctrj[,1]), 
+           threshold = 100 / nrow(signed.ctrj), 
+           ylim = NULL, 
+           color4bar = gplots::col2hex(col4Var),
+           color4ns = "gray75", 
+           plotnames = TRUE, 
+           horizontal = F,
+    main = 'Important Contributions Variables. Dim 1.', 
+           ylab = "Signed Contributions")
+
+print(c001.plotCtrj.1)
+
+```
+
+
+### Contribution bar plots for dimension 2
+
+```{r, echo=FALSE}
+###### 2 ====
+# 
+c002.plotCtrj.2 <- PrettyBarPlot2(
+  bootratio = round(100*signed.ctrj[,2]), 
+  threshold = 100 / nrow(signed.ctrj), 
+  ylim = NULL, 
+  color4bar = gplots::col2hex(col4Var),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  horizontal = F,
+  main = 'Important Contributions Variables. Dim 2.', 
+  ylab = "Signed Contributions")
+
+print(c002.plotCtrj.2)
+
+```
+
+
+### Bootstrap ratio - Dimension 1
+
+```{r, echo=FALSE}
+#  Bootstrap ratios ####
+#_________________________________________________
+#_________________________________________________
+#BR. 1 ====
+# 
+BRj <- resBADA.inf$Inference.Data$boot.data$fj.boot.data$tests$boot.ratios
+# BR1
+d001.plotBRj.1 <- PrettyBarPlot2(
+  bootratio = BRj[,1], 
+  threshold = 2, 
+  ylim = NULL, 
+  color4bar = gplots::col2hex(col4Var),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  horizontal = F,
+  main = 'Bootstrap Ratios Variables. Dim 1.', 
+  ylab = "Bootstrap Ratios")
+
+print(d001.plotBRj.1)
+
+```
+
+
+### Bootstrap ratio - Dimension 2
+
+```{r, echo=FALSE}
+###### 2 ====
+# 
+d003.plotBRj.2 <- PrettyBarPlot2(
+  bootratio = BRj[,2], 
+  threshold = 2, 
+  ylim = NULL, 
+  color4bar = gplots::col2hex(col4Var),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  horizontal = F,
+  main = 'Bootstrap Ratios Variables. Dim 2.', 
+  ylab = "Bootstrap Ratios")
+
+print(d003.plotBRj.2)
+```
+
+### Confusion matrix - fixed effects
+
+The fixed effects confusion matrix gives us an idea of how good our predictions were to create the categories in the existing data. The accuracy value quantifies the same. On the other hand, random effects confusion matrix outlines the quality of prediction/categorizing accuracy of _new_ observations in the dataset.  
+
+*Jackknife* is a technique used to train models for prediction by separating the dataset of interest into training and testing data. Testing data will contain only one row/subject/participant/observation, which will be predicted using the attributes of the rest of the data. 
+
+
+```{r, echo=FALSE}
+
+confusionmatrix1 <- resBADA.inf$Inference.Data$loo.data$fixed.confuse
+
+resBADA.inf$Inference.Data$loo.data$fixed.acc
+
+kable(as.data.frame(confusionmatrix1))
+
+```
+
+### Confusion matrix - random effects
+
+```{r, echo=FALSE}
+
+confusionmatrix <- resBADA.inf$Inference.Data$loo.data$loo.confuse
+
+resBADA.inf$Inference.Data$loo.data$loo.acc
+
+kable(as.data.frame(confusionmatrix))
+
+```
+
+
+```{r, echo=FALSE}
+# savedList <- PTCA4CATA::saveGraph2pptx(
+#                   file2Save.pptx = path2save, 
+#                   title = leTitre, 
+#                   addGraphNames = TRUE)
+```
+
+## Summary:
+Dimension 1
+Rows: 		Dinner and Sleep	VS 	Party and Workout
+Cols: 		Danceability, loudness, energy are highly positively correlated, acousticness and energy strongly negatively correlated
+
+Dimension 2
+Sleep and Party/Workout songs are distinct from each other.
+Duration contributes to the dimension more than others. Seems to have an impact on dinner songs.
+
+Interpretation: Dinner and sleep music that are more acoustical/instrumental are distinct from other genres

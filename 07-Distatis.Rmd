@@ -1,0 +1,456 @@
+# DiSTATIS {#distatis}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+#___________________________________________
+# parameters for pptx ----
+leTitre   <- 'DiSTATIS: Wines'
+leDir     <- paste0(getwd(),'/')    # Where am I
+filename  <- 'DiSTATISwithWines' # my title
+path2save <-  paste0(leDir, filename)
+
+# libraries ----
+library(kableExtra)
+library(dplyr)
+library(corrplot)
+library(tidyverse)
+library(Matrix)
+library(factoextra)
+library(RColorBrewer)
+library(DistatisR)
+library(PTCA4CATA)
+library(prettyGraphs)
+library(ExPosition)
+library(R4SPISE2018)
+library(data4PCCAR)
+library(readxl)
+## ggrepel ----
+options(ggrepel.max.overlaps = Inf) 
+```
+
+## Method: DiSTATIS
+
+Derived from the work of Escouffier, STATIS is a technique used to handle multiple data tables containing different variables measuring the same observations. It is an extension of principal component analysis. 
+
+In another variant of STATIS (called dual-STATIS), same variables measuring different observations in multiple tables are analyzed. 
+
+Either way, the first step is to analyze the similarity in data between tables and compute an optimal set of weights that are used to compute "compromises", which are similar to components in a PCA. Components are linear combinations of data tables. The second step is to conduct a PCA on the compromise, which gives an optimal map of the observations. 
+
+One of the "types" of STATIS is DiSTATIS. It is used when there are K distance matrices on the same set of observations. The distance matrices are converted into cross-product matrices and then STATIS is applied. 
+
+Source - https://bit.ly/3DbS0Tb 
+
+## Data set: 19 judges sort 18 wines
+
+This is a dataset which describes how 19 judges sort 18 wines into groups. Gender acts as the descriptor for the variables. 
+
+
+``` {r, echo=FALSE}
+## ----filename, etc. ----------------------------
+name4Graphs <- 'SortingWines.pptx'
+title4pptx <- '19 judges sort 18 wines'
+
+## 
+hwdata  <- read_excel("DiSTATISdataset.xlsx")
+
+multiSort <- select(hwdata, c(-"Wine", -"Color", -"Name"))
+
+multiSort <- as.matrix(multiSort)
+
+t_multiSort <- t(multiSort)
+
+designvar <- read_excel("designvar.xlsx")
+
+row.names(designvar) <- c('Gender', "Country")
+
+t_designvar <- as.data.frame(t(designvar))
+
+nVarJudges  <- ncol(designvar)
+
+## ----k4Judges-----------------------------------
+k <- 1 # this is the first descriptor 
+       #  for the judges Gender
+## ----descJudges---------------------------------
+descJudges <- t_designvar[,k ]
+## ----colJudges----------------------------------
+# Create a 0/1 group matrix 
+# with ExPosition::makeNominalData()
+nominal.Judges <- makeNominalData(
+                       as.data.frame(descJudges))
+# get the colors
+color4Judges.list <- 
+    prettyGraphs::createColorVectorsByDesign(
+                  nominal.Judges)
+# color4Judges.list
+color4Judges.list$oc <- descJudges
+# c("#143CA8", "white", "white") 
+col4W <- '#C358D6'# 'pink'
+col4M <- '#143CA8' # 'blue'
+color4Judges.list$oc[
+       color4Judges.list$oc == 'W'] <- col4W
+color4Judges.list$oc[
+       color4Judges.list$oc == 'M'] <- col4M
+color4Judges.list$gc[1,1] <- col4W
+color4Judges.list$gc[2,1] <- col4M
+
+
+
+```
+
+### Distance matrix
+
+The main object used in DiSTATIS is the distance matrix or how far the judges are from each other on each observation. 
+
+```{r}
+## ----getCube------------------------------------
+DistanceCube <- DistanceFromSort(multiSort)
+DistanceCube <- na.omit(DistanceCube)
+```
+
+### Analysis
+
+```{r}
+## runDistatis--------------------------------
+resDistatis <- distatis(DistanceCube, 
+                        nfact2keep = 3)
+n.active <- dim(DistanceCube)[2]
+
+```
+
+
+```{r, echo=FALSE}
+# Get the factors from the Cmat analysis
+G <- resDistatis$res4Cmat$G
+JudgesMeans.tmp <- aggregate(G, 
+                      list(descJudges), mean) 
+JudgesMeans <- JudgesMeans.tmp[,2:ncol(
+                             JudgesMeans.tmp )] 
+rownames(JudgesMeans) <- JudgesMeans.tmp[,1]
+
+```
+
+
+```{r, echo=FALSE}
+# Get the bootstrap estimates
+BootCube <- PTCA4CATA::Boot4Mean(G, 
+                       design = descJudges,
+                       niter = 1000,
+                       suppressProgressBar = TRUE)
+# head(BootCube)
+# ## ----computeSk/ Fk ---------------------------
+# Use Distatis1.1.0 function computePartial4Groups
+groupK <- computePartial4Groups(
+   resDistatis = resDistatis,
+   DESIGN = descJudges
+)
+alpha_k <- groupK $groupAlpha
+F_k     <- groupK $groupFS
+```
+
+### Rv heat map
+
+
+```{r, echo=FALSE}
+#**** Graphs ----
+# ...  Rv Graphs ----
+## Rv Corplot ----
+# Note that the assessors have been re-ordered
+# according to their projection on Dimension 1.
+plot <- corrplot::corrplot(resDistatis$res4Cmat$C, 
+                  # title = "The RV Map",
+   order = 'FPC', # order from the first PC
+   method = "color",
+   col = RColorBrewer::brewer.pal(n = 8, 
+                                  name = "PuOr"),
+   number.cex = 0.8, 
+   tl.col = color4Judges.list$oc,
+   mar = c(0,0,0,0),
+   addgrid.col = "grey", 
+   tl.srt = 50)
+a000.RVmap <-  recordPlot()
+
+```
+
+### The Scree plot
+
+The scree plot shows us how many dimensions contribute to the variance in the data and how much. In this plot, Dim 1 contributes about 47% or the variance. Hence, it would be a good place to start.
+
+```{r, echo=FALSE}
+## ----RV.scree.MapPlain -------
+# 5.A. A scree plot for the RV coef. 
+# Using standard plot (PTCA4CATA)
+scree.rv.out <- PlotScree(
+          ev = resDistatis$res4Cmat$eigValues, 
+          title = "RV-map: Scree")
+a1.Scree.RV <- recordPlot() # Save the plot
+```
+
+### Rv Plot
+
+As a first step, a PCA is run on the data table. The Rv coefficients are plotted on the components. The factor scores are obtained from the eigen-decomposition of the between distance matrices cosine matrix (often a matrix of Rv coefficients). The points are colored by the gender of the judge. Blue is for males and pink is for females. The 95% confidence intervals around the mean are also generated based on bootstrapping estimates.  
+
+```{r, echo=FALSE, graphs=FALSE, results='hide'}
+## ----RVGplot------------------------------------
+# Create the layers of the map
+gg.rv.graph.out <- createFactorMap(
+             X = resDistatis$res4Cmat$G, 
+             axis1 = 1, axis2 = 2, 
+             title = "Judges: RVMap", 
+             col.points = color4Judges.list$oc, 
+             col.labels = color4Judges.list$oc,
+             display.labels = F,
+             alpha.points = 0.35
+             )
+# create the labels 
+# for the dimensions of the RV map
+labels4RV <- createxyLabels.gen(
+        lambda = resDistatis$res4Cmat$eigValues, 
+        tau    = resDistatis$res4Cmat$tau,
+        axisName = "Dimension ")
+## Create the map from the layers
+# Here with labels and dots
+a2a.gg.RVmap <- gg.rv.graph.out$zeMap + labels4RV
+# Here with colored dots only
+# a2b.gg.RVmap <- gg.rv.graph.out$zeMap_background +
+#                 gg.rv.graph.out$zeMap_dots + 
+#                 labels4RV
+
+## ----mapa2a -------
+##print(a2a.gg.RVmap )
+
+```
+
+
+```{r, echo=FALSE}
+
+## ----RVwithCI-----------------------------------
+# First the means
+# A tweak for colors
+in.tmp    <- sort(rownames(color4Judges.list$gc), 
+                        index.return = TRUE)$ix
+col4Group <- color4Judges.list$gc[in.tmp]
+
+gg.rv.means <- PTCA4CATA::createFactorMap(
+        JudgesMeans,
+        axis1 = 1, axis2 = 2, 
+        alpha.points = 1,
+        cex = 4,
+        pch = 15,
+        col.points = col4Group, 
+        display.labels = T) # no transparency
+
+print(gg.rv.means)
+
+#
+ dimnames(BootCube$BootCube)[[2]] <- 
+     paste0('dim ',1: dim(BootCube$BootCube)[[2]])
+  #c('Dim1','Dim2') 
+GraphElli.rv <- MakeCIEllipses(
+        BootCube$BootCube[,1:2,],
+        names.of.factors = c("dim 1","dim 2"), 
+        col = col4Group, 
+        p.level = .95)
+a2d.gg.RVMap.CI <- a2a.gg.RVmap +
+                  gg.rv.means$zeMap_dots + gg.rv.means$zeMap_text +
+                  GraphElli.rv 
+# dev.new()
+print(a2d.gg.RVMap.CI)
+```
+
+### Hierarchical clustering analysis
+
+In this step, the judges are mapped to different clusters, all placed in a hierarchical structure. The judges clustered closer to each other rated the wines in a similar fashion. (Since the gender variable is made up, we may not be seeing clear trends here). 
+
+```{r, echo=FALSE}
+## ----meansRV------------------------------------
+knitr::kable(JudgesMeans[,1:3])
+## ----mapa2d -----------------
+print(a2d.gg.RVMap.CI )
+##  HCA
+##   Hierarchical Clustering Analysis (HCA)
+ D <- dist(resDistatis$res4Cmat$G,
+               method = "euclidean")
+ fit <- hclust(D, method = "ward.D2")
+ a05.tree4participants <- fviz_dend(fit,  
+     k = 1, 
+     k_colors = 'burlywood4', 
+     label_cols = color4Judges.list$oc[fit$order],
+     cex = .7, xlab = 'Participants',
+     main = 'Cluster Analysis: Participants') 
+
+## ---- plothca --------------------
+ print(a05.tree4participants)
+```
+
+### Heat map after HCA
+
+After conducting the cluster analysis, this is what the heat map looks like. 
+
+```{r, echo=FALSE}
+# ... S graphs ----
+# S corplot ----
+ #-________________________________________________
+## CorrMat 4  Products  ----
+ # Create color for the Products from prettyGraph
+ color4Products <- #  
+   prettyGraphsColorSelection(n.colors = 
+                nrow(resDistatis$res4Splus$F))
+ plot <- corrplot::corrplot(
+   resDistatis$res4Splus$Splus, 
+   #title = "The S Map",
+   order = 'original', # original order
+   method = "color",
+   col = brewer.pal(n = 8, name = "PRGn"),
+   number.cex = 0.8, 
+   tl.col = color4Products,
+   mar = c(0,0,0,0),
+   addgrid.col = "grey", 
+   tl.srt = 50)
+b001.ScorrMap.Original <- recordPlot() 
+# Reordered from HCA
+ plot <- corrplot::corrplot(
+   resDistatis$res4Splus$Splus, 
+   #title = "The S Map",
+   order = 'hclust', # order from a HCA
+   method = "color",
+   col = brewer.pal(n = 8, name = "PRGn"),
+   number.cex = 0.8, 
+   tl.col = color4Products,
+   mar = c(0,0,0,0),
+   addgrid.col = "grey", 
+   tl.srt = 50)
+b002.ScorrMap.OrderedByHCA <- recordPlot() 
+```
+
+### Scree plot - Compromise/Global data table
+
+```{r, echo=FALSE}
+# A scree plot for the Compromise.
+ scree.S.out <- PlotScree(
+   ev = resDistatis$res4Splus$eigValues, 
+   title = "Compromise: Explained Variance per Dimension")
+ b1.Scree.S <- recordPlot()
+```
+
+### Global factor scores
+
+This is a plot of the factor scores from the grand data table. The dots are colored by wine color (Red, White, Rosé). The reds and whites are largely separated, with the pinks taking the side of the whites more than that of the reds. 
+
+```{r, echo=FALSE, results='hide'}
+## ----createGr4S -----
+
+winecolors <- car::recode(hwdata$Color, "'P' = 'lightpink3'; 'R' = 'darkred'; 'W' = 'lightgoldenrod1'")
+
+# 4.1 Get the bootstrap factor scores 
+ #    (with default 1000 iterations)
+BootF <- BootFactorScores(
+                resDistatis$res4Splus$PartialF)
+# 5.2 a compromise plot
+# General title for the compromise factor plots:
+genTitle4Compromise = 'Compromise.'
+# To get graphs with axes 1 and 2:
+h_axis = 1
+v_axis = 2
+# To get graphs with say 2 and 3 
+# change the values of v_axis and h_axis
+gg.compromise.graph.out <- createFactorMap(
+                resDistatis$res4Splus$F,
+                axis1 = h_axis, 
+                axis2 = v_axis,
+                title = genTitle4Compromise,
+                col.points = winecolors,
+                col.labels = winecolors
+                ) 
+# NB for the lines below 
+#  You need DISTATIS version > 1.0.0
+#  to get the eigen values 
+#   and tau for the compromise
+label4S <- createxyLabels.gen(
+      x_axis   = h_axis, y_axis = v_axis,
+      lambda   = resDistatis$res4Splus$eigValues, 
+      tau      = resDistatis$res4Splus$tau,
+      axisName = "Dimension ")
+
+b2.gg.Smap <-  gg.compromise.graph.out$zeMap + 
+                   label4S 
+dev.new()
+print(b2.gg.Smap)
+
+```
+
+### Partial factor scores
+
+In addition to the global factor scores which conslidate all the data from the tables and only derive the linear combinations of variables from the grand data table, the positions of the observations ‘as seen by’ each data called partial factor scores can also be mapped. The partial factor scores for each table are computed by projecting every data table on to the plot (factor scores map).
+
+
+```{r, echo=FALSE}
+# 5.4 a bootstrap confidence interval plot 
+# 5.3  create the ellipses
+## With Ellipses -----
+gg.boot.graph.out.elli <- MakeCIEllipses(
+           data = BootF[,c(h_axis,v_axis),],
+           names.of.factors = 
+                c(paste0('Factor ',h_axis),
+                  paste0('Factor ',v_axis)),
+           col = color4Products,
+)  
+# Add ellipses to compromise graph
+b3.gg.map.elli <- gg.compromise.graph.out$zeMap +
+                  gg.boot.graph.out.elli + label4S 
+#
+## ----plot with ellipse -----------
+print(b3.gg.map.elli)
+
+##  HCA products ------
+nFac4Prod = 3
+D4Prod <- dist(
+           resDistatis$res4Splus$F[,1:nFac4Prod],
+           method = "euclidean")
+ fit4Prod <- hclust(D4Prod, method = "ward.D2")
+ b3.tree4Product <- fviz_dend(fit4Prod,  k = 1, 
+       k_colors = 'burlywood4', 
+      label_cols = winecolors,
+       cex = .7, xlab = 'Products',
+       main = 'Cluster Analysis: Products') 
+
+## ----plot hca Prod ---------------------
+ print(b3.tree4Product)
+
+## ----PartialFS----------------------------------
+# get the partial map
+
+map4PFS <- createPartialFactorScoresMap(
+         factorScores = resDistatis$res4Splus$F,      
+         partialFactorScores = F_k,  
+         axis1 = 1, axis2 = 2,
+         colors4Blocks = color4Judges.list$gc, 
+         colors4Items = as.vector(color4Products), 
+         names4Partial = dimnames(F_k)[[3]], # 
+         font.labels = 'bold')
+# partial maps
+d1.partialFS.map.byProducts <- 
+          gg.compromise.graph.out$zeMap + 
+          map4PFS$mapColByItems + label4S 
+d2.partialFS.map.byCategories  <- 
+          gg.compromise.graph.out$zeMap + 
+          map4PFS$mapColByBlocks + label4S 
+
+## ----S with Categories -----
+print(d1.partialFS.map.byProducts )
+## ----S with Categories.2 -----
+print(d2.partialFS.map.byCategories)
+
+```
+
+
+```{r, echo=FALSE}
+# save Graphs -----
+  # toto <- PTCA4CATA::saveGraph2pptx(
+  #   file2Save.pptx = name4Graphs,
+  #   title = title4pptx,
+  #   addGraphNames = TRUE)
+```
+
+## Summary
+
+DiSTATIS was used to study a dataset which contained 18 wines judged by 19 judges. The global factor scores map shows that reds and whites were judged distinctly. 

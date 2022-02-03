@@ -1,0 +1,6 @@
+delete_merged_file: true 
+language:
+  ui:
+    chapter_name: "Chapter "
+new_session: yes #This is needed to do Knit-Merge. See https://bookdown.org/yihui/bookdown/new-session.html
+book_filename: "Sharnya's Cookbook"

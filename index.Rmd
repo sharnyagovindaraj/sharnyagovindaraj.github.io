@@ -1,0 +1,28 @@
+--- 
+title: "RM 3 Cookbook"
+author: "Sharnya Govindaraj"
+date: "`r Sys.Date()`"
+site: bookdown::bookdown_site
+documentclass: book
+description: "A guide to R code for multivariate statistics"
+output:
+  bookdown::gitbook:
+    split_by: none #outputs a single HTML file that you can scroll through
+    config:
+      toc:
+        before: | # table of contents header
+          <li><a href="./"><strong>RM 3 Cookbook</strong><br></a></li>
+bookdown::pdf_book: default
+---
+
+# Preface {-}
+
+This book is a compilation of multivariate analyses techniques that was taught as part of the Advanced Research Methods course by Dr. Hervé Abdi and Luke Moraglia in Fall 2021. Some of the methods covered are Principal Component Analysis, Correspondence Analysis, Multiple Correspondence Analysis, Barycentric Discriminant Analysis, and Discriminant Correspondence Analysis.
+
+```{r eval=FALSE, echo=FALSE}
+install.packages("bookdown")
+# or the development version
+# devtools::install_github("rstudio/bookdown")
+tinytex::install_tinytex()
+```
+

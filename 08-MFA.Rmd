@@ -1,0 +1,310 @@
+# Multiple factor analysis {#mfa}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+#___________________________________________
+# parameters for pptx ----
+leTitre   <- 'MFA: Audio features'
+leDir     <- paste0(getwd(),'/')    # Where am I
+filename  <- 'MFAwithAudioFeatures' # my title
+path2save <-  paste0(leDir, filename)
+
+# libraries ----
+library(kableExtra)
+library(dplyr)
+library(corrplot)
+library(tidyverse)
+library(Matrix)
+library(factoextra)
+library(RColorBrewer)
+library(DistatisR)
+library(PTCA4CATA)
+library(prettyGraphs)
+library(ExPosition)
+library(R4SPISE2018)
+library(data4PCCAR)
+library(readxl)
+## ggrepel ----
+options(ggrepel.max.overlaps = Inf) 
+```
+
+## Method: Multiple Factor Analysis (MFA)
+
+Much like the other techniques, Multiple factor analysis (aka multiple factorial analysis) is an extension of PCA specifically proficient in handling multiple data tables containing different variables measuring the same observations, or vice versa in dual-MFA (same variables measuring different observations). 
+
+Similar to DiSTATIS, MFA proceeds in 2 steps. The first step is to do a PCA of each data table and 'normalize' the data tables by using the first singular value obtained in the PCA. The next step is to aggregate all the normalized data tables into a grand data table and run a PCA again on that. This PCA gives factor scores for the observations and loadings for the variables on a "Global" map. 
+
+Additionally, MFA provides a "partial factor scores" plot for each data table which reflects the specific view-point of the data table. 
+
+Source - https://bit.ly/3H88Wxc
+
+
+## Data set: Audio features
+This is a dataset which describes audio features of songs in Spotify playlists. 
+
+Specifically, the music.track dataset measures 165 songs on 16 variables, of which 11 are quantitative. Some of the audio features described are acousticness, danceability, and energy. Additionally, music.audio contains 7 quantitative variables that describe features of the audio signals; mel-frequency cepstral coefficients (MFCC) --> timbre, spectral centroid (SCEM) --> brightness of sound, spectral contrast (SCOM) --> harmonic/non-harmonic music, spectral roll-off (SROM) & bandwidth (SBWM) --> timbre, tempo --> estimated tempo of the track, root mean square energy (RMSE) --> energy per frame
+
+The music.track table has been further divided into 2 tables - one containing only duration and tempo, with the other containing the rest of the variables. This is done because MFA needs at least 3 tables for analysis. 
+
+Dataset 1 --> Audio signal features
+Dataset 2 --> Musical features (perceived)
+Dataset 2 --> Technical features (Duration, Tempo in BPM)
+
+
+``` {r, echo=FALSE}
+## ----filename, etc. ----------------------------
+name4Graphs <- 'AudioMFA.pptx'
+title4pptx <- 'MFA on Audio Features of Spotify Songs'
+
+## 
+dataset <- load("audio-feature.RData")
+
+audiosignal <- select(music.audio, c(-"name", -"id", -"genre"))
+
+musicalfeature <- select(music.track, c("acousticness", "danceability", "loudness", "liveness", "instrumentalness", "valence", "speechiness", "energy"))
+
+technicalfeature <- select(music.track, c("duration_ms", "tempo"))
+
+bothmusicdatasets <- inner_join(music.audio, music.track, by = "name")
+
+bothmusicdatasets <- select(bothmusicdatasets, c(-"id.x", -"genre.x", -"id.y", -"uri", -"artist", -"mode", -"time_signature", -"genre.y"))
+
+finaldataset <- select(bothmusicdatasets, c(-"name", -"key"))
+
+finaldataset <- finaldataset[c(1:165),]
+
+# t_noname <- t(noname)
+# 
+# colnames(t_noname) <- bothmusicdatasets$name
+# 
+# finaldataset <- t_noname
+# 
+# finaldataset <- as.data.frame(finaldataset)
+# 
+# finalfinaldataset <- as.matrix(finaldataset)
+# 
+# typeof(finalfinaldataset)
+```
+
+### Analysis 
+
+``` {r}
+## call  MFA ----
+resMFA <- FactoMineR::MFA(finaldataset,
+     group = c(7, 8, 2),
+     type = c("s", "s", "s"),
+     name.group = c("audiosignal", "musicalfeature", "technicalfeature"),
+     graph = FALSE  
+)
+
+```
+
+### The Scree plot
+
+The scree plot shows us how many dimensions contribute to the variance in the data and how much. In this plot, Dim 1 contributes about 47% or the variance. Hence, it would be a good place to start.
+
+```{r, echo=FALSE}
+
+## MFA scree
+val.p   <- resMFA$eig[,1]
+val.tau <- resMFA$eig[,2] 
+ctr.Judges.mfa <- resMFA$group$coord
+# Scree ----
+
+factoextra::fviz_screeplot(resMFA, addlabels =TRUE, main = "MFA: Explained Variance per Dimension")
+
+a.a0001.Scree.mfa <- recordPlot()
+
+```
+
+### Rv Plot
+
+As a first step, a PCA is run on the data tables as if they are 3 variables (so to say). The Rv coefficients are plotted on the components. The Rv coefficient can be interpreted as a non-centered squared coefficient of correlation between two matrices. We see in the plot that the audio signals and musical features overlap almost entirely, which is the trend observed in previous multivariate techniques as well. Duration and Tempo always stood out in Dimension 2. 
+
+```{r, echo=FALSE}
+## ----RVGplot------------------------------------
+# get the eigenvalues for RV
+RV.eig <- eigen(resMFA$group$RV[1:3, 1:3], 
+                symmetric = TRUE)
+G.mfa  <- firstpos(RV.eig$vectors) %*% 
+                        diag(RV.eig$values^(1/2))
+rownames(G.mfa) <- c("audiosignal", "musicalfeature", "technicalfeature")
+colnames(G.mfa) <- paste0('Dimension ', 1:ncol(G.mfa))
+mfa.rv.eig <- RV.eig$values
+mfa.rv.tau <-  round(100 * mfa.rv.eig / sum(mfa.rv.eig))
+# Create the layers of the map
+gg.rv.graph.out.mfa <- createFactorMap(
+  X = as.data.frame(G.mfa), 
+  axis1 = 1, axis2 = 2, 
+  title = "MFA. Audio Features: RVMap", 
+  col.points = c("#104E8B", "#8B2252", "#8B8B00"), 
+  col.labels = c("#104E8B", "#8B2252", "#8B8B00"))
+# create the labels for the dimensions of the RV map
+labels4RV.mfa <- createxyLabels.gen(
+  lambda =  mfa.rv.eig, 
+  tau    =  mfa.rv.tau,
+  axisName = "Dimension ")
+# # Create the map from the layers
+# Here with labels and dots
+a.a2a.gg.RVmap.mfa <- gg.rv.graph.out.mfa$zeMap + 
+                        labels4RV.mfa
+print(a.a2a.gg.RVmap.mfa)
+```
+
+### Global factor scores
+
+This is a plot of the factor scores from the grand data table. The dots are colored by genre. Dinner is closer to party and workout songs compared to its distance from sleep songs. 
+
+```{r, echo=FALSE}
+# Global Factor Scores ----
+
+genreColors <- recode(music.track$genre, 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+
+constraints.mfa <- minmaxHelper(resMFA$ind$coord.partiel)
+
+F.mfa <- resMFA$ind$coord
+
+# To get graphs with axes 1 and 2:
+h_axis = 1
+v_axis = 2
+genTitle4Compromise = 'Compromise / Global Map. mfa'
+
+gg.compromise.graph.out.mfa <- createFactorMap(
+  F.mfa,
+  axis1 = h_axis, 
+  axis2 = v_axis,
+  title = genTitle4Compromise,
+  col.points = genreColors ,
+  col.labels = genreColors ,
+  constraints = constraints.mfa,
+  display.labels = F,
+  alpha.points = 0.35)
+
+label4S.mfa <- createxyLabels.gen(
+  x_axis   = h_axis, y_axis = v_axis,
+  lambda   = resMFA$eig[,1] , 
+  tau      = round(resMFA$eig[,2]),
+  axisName = "Dimension ")
+
+audioMeans <- PTCA4CATA::getMeans(as.data.frame(F.mfa), music.track$genre)
+
+col4Means <- recode(rownames(audioMeans), 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+
+MapGroup <- PTCA4CATA::createFactorMap(audioMeans,
+           # use the constraint from the main map
+           constraints = constraints.mfa,
+           col.points = col4Means,
+           cex = 5,  # size of the dot (bigger)
+           col.labels = col4Means,
+           text.cex = 5,
+           pch = 17,
+           alpha.points = 1,
+           display.points = TRUE)
+
+b2.gg.Smap.mfa <-  
+  gg.compromise.graph.out.mfa$zeMap + MapGroup$zeMap_dots + MapGroup$zeMap_text + label4S.mfa 
+
+print(b2.gg.Smap.mfa)
+
+```
+
+### Partial factor scores
+
+In addition to the global factor scores which consolidate all the data from the tables and only derive the linear combinations of variables from the grand data table, the positions of the observations ‘as seen by’ each data called partial factor scores can also be mapped. The partial factor scores for each table are computed by projecting every data table on to the plot (factor scores map).
+
+```{r, echo=FALSE}
+F_long <- resMFA$ind$coord.partiel 
+F_k.mfa <-  array(data = NA,
+                  dim = c(165, ncol(F_long), 3),
+                  dimnames = list(rownames(as.matrix(finaldataset)), 
+                                  colnames(F_long), c("audiosignal", "musicalfeature", "technicalfeature"))
+)
+for (k in 1 : 3){
+  row2keep <- seq(k, 165*3, 3)
+  F_k.mfa[,,k] <- F_long[row2keep,]
+}
+
+map4PFS.mfa <- createPartialFactorScoresMap(
+  factorScores = F.mfa,      
+  partialFactorScores = F_k.mfa,  
+  axis1 = 1, axis2 = 2,
+  colors4Items = c("#104E8B", "#8B2252", "#8B8B00"), 
+  alpha.points = 0.3,
+  names4Partial = dimnames(F_k.mfa)[[3]], # 
+  font.labels = 'bold'
+)
+d1.partialFS.map.mfa.byProducts <- 
+  gg.compromise.graph.out.mfa$zeMap + map4PFS.mfa$mapColByItems + label4S.mfa 
+ 
+print(d1.partialFS.map.mfa.byProducts)
+
+```
+
+
+### Correlation between variables and factors
+
+Back to PCA stuff! The circle of correlations can be interpreted using the angle between 2 variables (correlation magnitude and direction) and the distance between the circumference and arrowhead (the ones closer to the circumference are more important). Another method of visualizing would be to grey out the unimportant ones, like in this plot. SCOM and acousticness and strongly negatively correlated with SCEM, SBWM, SROM (same trend seen earlier in PLSC).
+
+
+```{r, echo=FALSE}
+# Compute correlation between variables & factors
+cor.ratings <- cor(finaldataset, F.mfa)
+col4J  <- rep(c("#104E8B", "#8B2252", "#8B8B00"), times = 3)
+jolie.ggplot.J <- PTCA4CATA::createFactorMap(
+  cor.ratings,
+  #col.points = col4J, col.labels = col4J, 
+  constraints = list(minx = -1, miny = -1,
+                     maxx = 1 , maxy = 1)   )
+# draw the circle
+e1.jolieggMap.J <- jolie.ggplot.J$zeMap + 
+  addCircleOfCor() + label4S.mfa
+#print(e1.jolieggMap.J) 
+#  Add some arrows
+arrows <- addArrows(cor.ratings)  
+e2.jolieggMap.J <- e1.jolieggMap.J + 
+  arrows 
+#print(e2.jolieggMap.J)
+# no dots
+e3.jolieggMap.J <- jolie.ggplot.J$zeMap_background +
+  jolie.ggplot.J$zeMap_text + arrows +
+  addCircleOfCor() + label4S.mfa 
+# Gray the small values ----
+corLevels <- rowSums(cor.ratings[,1:2]^2) 
+threshold <-  .75
+col4J.gray <- col4J
+col4J.gray[corLevels < threshold] <- 'gray85'
+jolie.ggplot.J.gray <- PTCA4CATA::createFactorMap(
+  cor.ratings,
+  col.points = col4J.gray, col.labels = col4J.gray, 
+  constraints = list(minx = -1, miny = -1,
+                     maxx = 1 , maxy = 1)   )
+arrows.gray <- addArrows(cor.ratings, 
+                         color = col4J.gray)  
+e8.jolieggMap.J.gray <- 
+  jolie.ggplot.J$zeMap_background +
+  jolie.ggplot.J.gray$zeMap_text + 
+  arrows.gray +
+  addCircleOfCor() + label4S.mfa 
+print(e8.jolieggMap.J.gray)
+
+```
+
+```{r, echo=FALSE}
+# save Graphs -----
+  # toto <- PTCA4CATA::saveGraph2pptx(
+  #   file2Save.pptx = name4Graphs,
+  #   title = title4pptx,
+  #   addGraphNames = TRUE)
+```
+
+## Summary:
+
+From the three data tables, we infer that audio signal features and musical perception features are closer to each other and duration and tempo are farther apart from the former two. Also, acousticness and spectral contrast (harmonic/non-harmonic music) are strongly negatively correlated with spectral centroid, bandwidth and rolloff, all of which measure the timbre of an instrument. 

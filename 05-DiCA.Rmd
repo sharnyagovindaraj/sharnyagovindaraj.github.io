@@ -1,0 +1,605 @@
+# Discriminant Correspondence Analysis {#dica}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+# Clean start
+rm(list = ls())
+graphics.off()
+gc()
+#_________________________________________________
+# parameters for pptx ----
+leTitre   <- 'DiCA: Audio features'
+leDir     <- paste0(getwd(),'/')    # Where am I
+filename  <- 'DiCA4AudioFeatures' # my title
+path2save <-  paste0(leDir, filename)
+#_________________________________________________
+#_________________________________________________
+# Preamble ----
+# libraries ----
+library(tidyverse)
+library(ExPosition)
+devtools::install_github("LukeMoraglia/ExPosition1/TExPosition")
+devtools::install_github("LukeMoraglia/ExPosition1/TInPosition")
+library(TExPosition)
+library(TInPosition)
+library(PTCA4CATA)
+# devtools::install_github('HerveAbdi/data4PCCAR')
+library(data4PCCAR)
+library(kableExtra)
+library(dplyr)
+library(corrplot)
+library(Ckmeans.1d.dp)
+```
+
+## Method: Discriminant Correspondence Analysis (DiCA)
+
+BADA for qualitative data! Just like PCA and CA. 
+
+Source - https://bit.ly/300ioBM
+
+## Data set: Audio features
+
+This is a dataset which describes audio features of songs in Spotify playlists. Specifically, the music.track dataset measures 165 songs on 16 variables, of which 11 are quantitative. Some of the audio features described are acousticness, danceability, and energy. 
+
+The data is binned in the same way as MCA. 
+
+
+```{r datasetDiCA, echo=FALSE, graphs=FALSE}
+load('audio-feature.Rdata')
+
+#Select vars of interest
+hwdata <- select(music.track, c(-id, -uri, -artist, -name))
+
+hwdata <- na.omit(hwdata)
+
+Xmat <-  hwdata[, c(1, 2, 3, 4, 5, 7, 8, 10, 11, 13)]
+
+#Create histograms to decide the binning intervals, bin the data for all vars of interest 
+#hist(hwdata$acousticness)
+
+hwdata <- hwdata %>%
+  mutate(Acous_ch = ifelse(acousticness < 0.2, "1",
+                        ifelse(acousticness > 0.2 & acousticness < 0.8, "2",
+                               ifelse(acousticness > 0.8, "3", "NA"))))
+
+#hist(hwdata$danceability)
+
+hwdata <- hwdata %>%
+  mutate(Dance_ch = ifelse(danceability < 0.4, "1",
+                           ifelse(danceability > 0.4 & danceability < 0.7, "2",
+                                  ifelse(danceability > 0.7, "3", "NA"))))
+
+#This chunk customizes the numbers on x-axis (instead of 3e+5, it shows the actual value in 000's or whatever you want)
+
+# hist(hwdata$duration_ms, axes = F)
+# axis(2)
+# ticks <- axTicks(1)
+# labels_in_thousands <- paste0((ticks/1e6)*1000, "K")
+# axis(1,at=ticks,labels=labels_in_thousands)
+
+hwdata <- hwdata %>%
+  mutate(Dur_ch = ifelse(duration_ms < 150000, "1",
+                           ifelse(duration_ms > 150000 & duration_ms < 300000, "2",
+                                  ifelse(duration_ms > 300000, "3", "NA"))))
+
+#hist(hwdata$energy)
+
+hwdata <- hwdata %>%
+  mutate(Ener_ch = ifelse(energy < 0.3, "1",
+                           ifelse(energy > 0.3 & energy < 0.7, "2",
+                                  ifelse(energy > 0.7, "3", "NA"))))
+
+#hist(hwdata$instrumentalness)
+
+hwdata <- hwdata %>%
+  mutate(Ins_ch = ifelse(instrumentalness < 0.2, "1",
+                           ifelse(instrumentalness > 0.2 & instrumentalness <= 0.8, "2",
+                                  ifelse(instrumentalness > 0.8, "3", "NA"))))
+
+#hist(hwdata$liveness)
+
+hwdata <- hwdata %>%
+  mutate(Live_ch = ifelse(liveness < 0.2, "1",
+                           ifelse(liveness > 0.2 & liveness < 0.6, "2",
+                                  ifelse(liveness > 0.6, "3", "NA"))))
+
+#hist(hwdata$loudness)
+
+hwdata <- hwdata %>%
+  mutate(Loud_ch = ifelse(loudness < -20, "1",
+                           ifelse(loudness > -20 & loudness < -10, "2",
+                                  ifelse(loudness > -10, "3", "NA"))))
+
+#hist(hwdata$speechiness)
+
+hwdata <- hwdata %>%
+  mutate(Speech_ch = ifelse(speechiness < 0.1, "1",
+                          ifelse(speechiness > .1, "2", "NA")))
+
+#hist(hwdata$tempo)
+
+hwdata <- hwdata %>%
+  mutate(Tempo_ch = ifelse(tempo < 100, "1",
+                          ifelse(tempo > 100 & tempo < 140, "2",
+                                 ifelse(tempo > 140, "3", "NA"))))
+
+#hist(hwdata$valence)
+
+hwdata <- hwdata %>%
+  mutate(Val_ch = ifelse(valence <= 0.3, "1",
+                           ifelse(valence > 0.3 & valence <= 0.6, "2",
+                                  ifelse(valence > 0.6, "3", "NA"))))
+
+hwdata <- na.omit(hwdata)
+
+#Generate clean table before removing quant vars so people understand what you show!
+
+inputforscroll <- kable(hwdata)
+
+scroll_box(inputforscroll, height = "250px")
+XYmat <- hwdata[, 15:24]
+
+
+## foo function ----
+# to be used later 
+foo <- function(x) {
+  xuniq <- unique(x)
+  N <- length(xuniq)
+  res <- rep(NA, N)
+  for (i in 1:N) {
+    res[i] <- sum(x == xuniq[i])
+  }
+  return(res)
+}
+
+## ggrepel options ----
+options(ggrepel.max.overlaps = Inf)
+
+```
+
+### Analysis
+
+
+```{r DiCA, echo=TRUE}
+## Run DiCA  ----
+resDiCA <- tepDICA(XYmat, 
+                   make_data_nominal = TRUE, 
+                   DESIGN = hwdata$genre,
+                   graphs = FALSE)
+##  Inferences ----
+set.seed(70301) # set the seed
+# to ensure same results. 
+```
+
+```{r infDiCA, echo=TRUE, results='hide'}
+nIter <- 100
+resDiCA.inf <- tepDICA.inference.battery(as.matrix(XYmat),
+                                         make_data_nominal = TRUE,
+                 DESIGN = hwdata$genre,
+                 test.iters = nIter,
+                 graphs = FALSE)
+```
+
+### Heatmap
+
+The heatmap is simply a visual representation of the relationship between the variables and the genres of songs. As we can see, the most distinct relationship is between sleep songs and audio features of acousticness and instrumentalness (positive). On the other hand, sleep songs and energy have a negative relationship.
+
+
+```{r, echo=FALSE, results='hide'}
+
+dica_disjunct <- makeNominalData(XYmat)
+
+group_sums <- getMeans(dica_disjunct, hwdata$genre, FUN = sum)
+group_sums
+
+corrplot(as.matrix(group_sums), is.corr = FALSE, addgrid.col = "black", tl.col = "black", tl.cex = 0.75, method = "color", col = colorRampPalette(c("white", "violetred4"))(200))
+
+a0.heatmap <- recordPlot()
+
+```
+
+
+### The Scree plot
+
+The scree plot shows us how many dimensions contribute to the variance in the data. In this plot, Dim 1 contributes more than 80% or the variance. Hence, it would be a good place to start. 
+
+```{r, echo=FALSE}
+# The ScreePlot. Fixed Effects. ----
+# Get the ScreePlot
+# scree for ev ----
+PlotScree(ev = resDiCA$TExPosition.Data$eigs,
+  title = 'DICA Audio features: Inertia Scree Plot',
+  plotKaiser = T, 
+  color4Kaiser = ggplot2::alpha('darkorchid4', .5),
+  lwd4Kaiser  = 2)
+# Save the plot
+a0002.Scree.sv <- recordPlot()
+```
+
+```{r, echo=FALSE}
+#Colors for the graphs
+genreColors <- hwdata$genre
+# get colors for graphs
+genreColors <- recode(genreColors, 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+```
+
+### Map of row factors
+
+This plot shows us the distribution of all elements in the data table. They are colored as per the genre, and we also see the group means marked. So pretty! 
+
+```{r, echo=FALSE}
+#  Observations and means ----
+# Observations ----
+#_________________________________________________
+# I-set map ----
+# a graph of the observations
+Imap <- PTCA4CATA::createFactorMap(
+  resDiCA$TExPosition.Data$fii,
+  col.points = genreColors,
+  col.labels = genreColors,
+  alpha.points = .5,
+  text.cex = 0,
+  display.labels = F,
+  cex = 2
+)
+
+#_________________________________________________
+# make labels ----
+label4Map <- createxyLabels.gen(1,2,
+          lambda = resDiCA$TExPosition.Data$eigs,
+          tau = resDiCA$TExPosition.Data$t)
+#_________________________________________________
+# Fix Fi ----
+# Note that current version of tepBADA 
+# has a scaling problem
+# Will soon be fixed
+# wineMeans <- resBADA$TExPosition.Data$fi 
+# code when BQDQ is fixed
+audioMeans <- PTCA4CATA::getMeans(
+               resDiCA$TExPosition.Data$fii, 
+               hwdata$genre)
+# a vector of color for the means
+# Explicit recoding to make sure 
+# that the names match
+# => Needs to be improved!
+col4Means <- recode(rownames(audioMeans), 
+                    dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+names(col4Means) <- rownames(audioMeans)
+# the map
+MapGroup <- PTCA4CATA::createFactorMap(audioMeans,
+             # use the constraint from the main map
+             constraints = Imap$constraints,
+             col.points = col4Means,
+             cex = 4,  # size of the dot (bigger)
+             col.labels = col4Means,
+             text.cex = 4,
+             alpha.points = 1,
+             display.labels = T,
+             pch = 17)
+# The map with observations and group means
+a003.DiCA <- Imap$zeMap + 
+               label4Map +
+               MapGroup$zeMap_dots + 
+               MapGroup$zeMap_text
+print(a003.DiCA)
+
+```
+
+### Confidence intervals generated by bootstrapping
+
+The 95% confidence intervals around the group means are generated. The smaller their radii, the more confidence we can assume of our group mean estimate. 
+
+
+```{r, echo=FALSE}
+
+### Bootstrapped CI ----
+#_________________________________________________
+# Create Confidence Interval Plots
+# use function MakeCIEllipses 
+# from package PTCA4CATA
+# First get the order of colors for the ellipses
+# truc <- unique(rownames(
+#    resDiCA.inf$Inference.Data$boot.data$fi.boot.data$boots))
+#    
+# col4Means.ordered <- col4Means[order(truc)]
+# #
+# GraphElli <- PTCA4CATA::MakeCIEllipses(
+#   resDiCA.inf$Inference.Data$boot.data$fi.boot.data$boots,
+#   col = col4Means.ordered, 
+#   #centers = resDiCA$TExPosition.Data$fii,
+#   p.level = .05
+# )
+# #_________________________________________________
+# ### Pretty Imap ----
+# # create the I-map with Observations, 
+# # means and confidence intervals
+# #
+# a004.DICA.withCI <- a003.DiCA +
+#                          GraphElli + label4Map +
+#   ggtitle('DICA: Group Centers with CI and Observations')
+# #_________________________________________________
+# # plot it!
+# # dev.new()
+# print(a004.DICA.withCI)
+
+fi.boot <- resDiCA.inf$Inference.Data$boot.data$fi.boot.data$boots
+# We want to use the rownames of fi.boot 
+# as reference to get the correct
+# color. 
+# However, the original rownames include "." 
+# and don't match with 
+# the original row names. 
+# So, the `sub` function was used to get rid of 
+# the "." by replacing all "." 
+# in the rownames of fi.boot as an empty 
+# string.
+rownames(fi.boot) <- sub("[[:punct:]]","",
+                          rownames(fi.boot))
+# use function MakeCIEllipses 
+# from package PTCA4CATA
+GraphElli <- PTCA4CATA::MakeCIEllipses(
+    resDiCA.inf$Inference.Data$boot.data$fi.boot.data$boots,
+    col = col4Means[rownames(fi.boot)], 
+    # use rownames as reference to pick the color
+    p.level = .95
+)
+#_________________________________________________
+# create the I-map with Observations, 
+# means and confidence intervals
+#
+a004.dica.withCI <-  Imap$zeMap_background  + 
+                        Imap$zeMap_dots     + 
+                        MapGroup$zeMap_dots + 
+                        MapGroup$zeMap_text +
+                      GraphElli + label4Map +
+  ggtitle('BADA: Group Centers with CI and Observations')
+#_________________________________________________
+# plot it!
+dev.new()
+print(a004.dica.withCI)
+```
+
+### Row factors with hull
+
+Hulls are drawn around each group. 
+
+```{r, echo=FALSE}
+###  with Hull ----
+Fii <- resDiCA$TExPosition.Data$fii
+# use function MakeToleranceIntervals 
+#     from package PTCA4CATA
+colnames(Fii) <- paste0('D', 1:3)
+GraphHull <- PTCA4CATA::MakeToleranceIntervals(
+                   Fii,
+                   design = hwdata$genre,
+                   col = col4Means,
+                   type = 'hull',
+                   p.level = 1.0)
+#(
+a006.DICA.withHull <-  Imap$zeMap_background + 
+                       Imap$zeMap_dots       + 
+                       MapGroup$zeMap_dots   + 
+                       MapGroup$zeMap_text   +
+                       GraphHull + label4Map +
+ ggtitle('DICA: Group Centers with Hulls and Observations')
+#)
+# To print the Hulls
+#dev.new()
+print(a006.DICA.withHull )
+#_________________________________________________
+
+
+```
+
+
+### Column factor scores
+
+This plot shows us the correlations between the different variables - the angle between 2 arrows is an indication of the strength of relationship. The direction of relationship can be determined by looking at which quadrants the arrows lie in. 
+
+```{r, echo=FALSE}
+### colors 4 J-set ----
+# get colors
+# nominalcolnames <- gsub("\\.[0-9]", "", 
+#      drop(colnames(resDiCA$TExPosition.Data$X)))
+
+XYmat_nominal <- makeNominalData(XYmat)
+
+col4Vars <- prettyGraphsColorSelection(
+                        n.colors = ncol(XYmat_nominal),
+                        starting.color = 42)
+
+
+#col4VarNom <- rep(col4Var,foo(nominalcolnames))
+#_________________________________________________
+### base map J ----
+Fj <- resDiCA$TExPosition.Data$fj
+baseMap.j <- PTCA4CATA::createFactorMap(Fj,
+                 col.points   = col4Vars,
+                 alpha.points =  .3,
+                 col.labels   = col4Vars)
+#_________________________________________________
+b001.BaseMap.Fj <- baseMap.j$zeMap + label4Map 
+b002.BaseMapNoDot.Fj  <-
+  baseMap.j$zeMap_background +
+  baseMap.j$zeMap_text + label4Map 
+###  add Lines ----
+lines4J <- addLines4MCA(Fj, col4Var = col4Vars)
+b003.MapJ <-  b001.BaseMap.Fj + lines4J
+print(b003.MapJ)
+
+```
+
+
+### Contribution bar plots for dimension 1
+
+The contribution bar plots show how much each variable is contributing to a certain dimension. Bootstrap ratios that follow are derived from the inference battery. 
+
+```{r, echo=FALSE}
+### Ctr J-set ----
+# 
+ctrj <- resDiCA$TExPosition.Data$cj
+signed.ctrj <- ctrj * sign(Fj)
+####  CtrJ 1 ====
+c001.plotCtrj.1 <- PrettyBarPlot2(
+  bootratio = round(100*signed.ctrj[,1]), 
+  threshold = 100 / nrow(signed.ctrj), 
+  ylim = NULL, 
+  horizontal = F,
+  color4bar = gplots::col2hex(col4Vars),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  main = 'Important Contributions Variables. Dim 1.', 
+  ylab = "Signed Contributions")
+dev.new()
+print(c001.plotCtrj.1)
+
+
+```
+
+
+### Contribution bar plots for dimension 2
+
+```{r, echo=FALSE}
+#### CtrJ 2 ====
+c002.plotCtrj.2 <- PrettyBarPlot2(
+  bootratio = round(100*signed.ctrj[,2]), 
+  threshold = 100 / nrow(signed.ctrj), 
+  ylim = NULL, 
+  color4bar = gplots::col2hex(col4Vars),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  horizontal = F,
+  main = 'Important Contributions Variables. Dim 2.', 
+  ylab = "Signed Contributions")
+
+print(c002.plotCtrj.2)
+
+```
+
+
+### Contribution maps
+
+```{r, echo=FALSE}
+
+col4Vars <- prettyGraphsColorSelection(
+                        n.colors = ncol(XYmat),
+                        starting.color = 42)
+
+CtrJ12 <- data4PCCAR::ctr4Variables(
+                     resDiCA$TExPosition.Data$cj)
+baseMap.ctrj <- PTCA4CATA::createFactorMap(CtrJ12,
+                     col.points   = col4Vars,
+                     alpha.points =  .3,
+                     col.labels   = col4Vars)
+#_________________________________________________
+b001a.BaseMap.Ctrj <- baseMap.ctrj$zeMap + 
+                       label4Map +
+  ggtitle('Variables Contributions Map')
+b001aa.BaseMapNoDot.Ctrj  <- 
+  baseMap.ctrj$zeMap_background +
+  baseMap.ctrj$zeMap_text + label4Map 
+
+print(b001a.BaseMap.Ctrj)
+
+```
+
+
+### Bootstrap ratio - Dimension 1
+
+```{r, echo=FALSE}
+#  Bootstrap ratios ####
+#_________________________________________________
+#_________________________________________________
+#BR. 1 ====
+# 
+### BR. 1 ====
+# 
+BRj <- resDiCA.inf$Inference.Data$boot.data$fj.boot.data$tests$boot.ratios
+col4Vars <- prettyGraphsColorSelection(
+                        n.colors = ncol(XYmat_nominal),
+                        starting.color = 42)
+# BR1
+d001.plotBRj.1 <- PrettyBarPlot2(
+  bootratio = BRj[,1], 
+  threshold = 2, 
+  ylim = NULL, 
+  color4bar = gplots::col2hex(col4Vars),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  horizontal = F,
+  main = 'Bootstrap Ratios Variable Levels. Dim 1.', 
+  ylab = "Bootstrap Ratios")
+
+print(d001.plotBRj.1)
+
+```
+
+
+### Bootstrap ratio - Dimension 2
+```{r, echo=FALSE}
+d003.plotBRj.2 <- PrettyBarPlot2(
+  bootratio = BRj[,2], 
+  threshold = 2, 
+  ylim = NULL, 
+  color4bar = gplots::col2hex(col4Vars),
+  color4ns = "gray75", 
+  plotnames = TRUE, 
+  horizontal = F,
+  main = 'Bootstrap Ratios Variable Levels. Dim 2.', 
+  ylab = "Bootstrap Ratios")
+
+print(d003.plotBRj.2)
+```
+
+
+### Confusion matrix - Fixed effects
+
+The fixed effects confusion matrix gives us an idea of how good our predictions were to create the categories in the existing data. The accuracy value quantifies the same. On the other hand, random effects confusion matrix outlines the quality of prediction/categorizing accuracy of _new_ observations in the dataset.  
+
+*Jackknife* is a technique used to train models for prediction by separating the dataset of interest into training and testing data. Testing data will contain only one row/subject/participant/observation, which will be predicted using the attributes of the rest of the data.  
+
+```{r, echo=FALSE}
+
+confusionmatrix1 <- resDiCA.inf$Inference.Data$loo.data$fixed.confuse
+
+resDiCA.inf$Inference.Data$loo.data$fixed.acc
+
+kable(as.data.frame(confusionmatrix1))
+
+```
+
+### Confusion matrix - random effects
+
+```{r, echo=FALSE}
+
+confusionmatrix2 <- resDiCA.inf$Inference.Data$loo.data$loo.confuse
+
+resDiCA.inf$Inference.Data$loo.data$loo.acc
+
+kable(as.data.frame(confusionmatrix2))
+
+```
+
+```{r, echo=FALSE}
+# savedList <- PTCA4CATA::saveGraph2pptx(
+#                   file2Save.pptx = path2save, 
+#                   title = leTitre, 
+#                   addGraphNames = TRUE)
+```
+
+## Summary:
+Dimension 1
+Rows: 		Dinner and Sleep	VS 	Party and Workout
+Cols: 		Danceability, loudness, energy are highly positively correlated, acousticness and energy strongly negatively correlated
+
+Dimension 2
+Sleep and Party/Workout songs are distinct from each other
+
+Interpretation: Dinner and sleep music that are more acoustical/instrumental are distinct from other genres.

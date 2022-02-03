@@ -1,0 +1,611 @@
+# Partial Least Squares Correlation {#plsc}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+#___________________________________________
+# parameters for pptx ----
+leTitre   <- 'PLSC: Audio features'
+leDir     <- paste0(getwd(),'/')    # Where am I
+filename  <- 'PLSC4AudioFeatures' # my title
+path2save <-  paste0(leDir, filename)
+
+# libraries ----
+library(kableExtra)
+library(dplyr)
+library(corrplot)
+library(ExPosition)
+library(TExPosition)
+library(data4PCCAR)
+library(PTCA4CATA)
+library(TExPosition)
+library(TInPosition)
+library(tidyverse)
+## ggrepel ----
+options(ggrepel.max.overlaps = Inf) 
+```
+
+## Method: Partial Least Squares Correlation (PLSC)
+
+Partial Least Squares Correlation is a technique used to analyze two data tables with different variables measuring the same observations. The data is condensed into latent variables which are linear combinations of original variables. The idea is to find how much information is shared between the two tables. The same technique can be applied when one data table is used to predit the other one (PLS Regression).
+
+PLSC can handle large data sets because it essentially operates on reducing dimensionality in the data. The latent variables are supposed to explain the maximum covariance shared between the two tables. In other words (or PCA contemporary), latent variables are factor scores. On the other hand, the contributions of the variables to the shared covariance ("loadings") are called saliences. 
+
+Source - https://bit.ly/3H88Wxc
+
+## Data set: Audio features
+
+This is a dataset which describes audio features of songs in Spotify playlists. 
+
+Specifically, the music.track dataset measures 165 songs on 16 variables, of which 11 are quantitative. Some of the audio features described are acousticness, danceability, and energy. Additionally, music.audio contains 7 quantitative variables that describe features of the audio signals; mel-frequency cepstral coefficients (MFCC) --> timbre, spectral centroid (SCEM) --> brightness of sound, spectral contrast (SCOM) --> harmonic/non-harmonic music, spectral roll-off (SROM) & bandwidth (SBWM) --> timbre, root mean square energy (RMSE) --> energy per frame
+
+
+```{r datasetPLSC, echo=FALSE}
+load("audio-feature.RData")
+Xmat <- select(music.audio, c(-"id", -"name", -"genre", -"tempo"))
+Ymat <- select(music.track, c(-"id", -"name", -"uri", -"artist", -"mode", -"genre", -"key", -"time_signature"))
+rawData <- music.track
+
+
+
+scroll_box(kable(Xmat), height = "250px")
+
+scroll_box(kable(Ymat), height = "250px")
+
+obj1 <- writexl::write_xlsx(music.audio, "music_audio.xlsx")
+obj2 <- writexl::write_xlsx(music.track, "music_track.xlsx")
+
+```
+
+
+### Correlation plot
+
+The correlation plot shows the magnitude and direction of the relationship between variables. As we can see, some are strongly negatively correlated (acousticness and MFCC, SCEM), and few others are strongly positively correlated (energy/loudness and SROM, SBWM, RMSE). 
+
+
+```{r, echo=FALSE}
+forcorrmat <- cor(Xmat, Ymat)
+
+corrplot(forcorrmat, is.corr = TRUE, addgrid.col = "black", tl.col = "black", tl.cex = 1, method = "color", col = colorRampPalette(c("violetred4", "white", "navyblue"))(200))
+
+a0.corrmap <- recordPlot()
+
+```
+
+
+### Analysis
+
+
+```{r PLSC, echo=TRUE}
+# Run PLSC  ----
+resPLSC <- tepPLS(Xmat, 
+                   Ymat, 
+                   DESIGN = rawData$genre,
+                   graphs = FALSE)
+```
+
+```{r echo=FALSE}
+### 1. Permutation test ----
+resPerm4PLSC <- perm4PLSC(
+                Xmat, # First Data matrix 
+                Ymat, # Second Data matrix
+                nIter = 1000 # How many iterations
+)
+```
+
+
+
+```{r, echo=FALSE}
+###  2. Bootstrap -----
+resBoot4PLSC <- Boot4PLSC(
+           Xmat, # First Data matrix 
+           Ymat, # Second Data matrix
+           nIter = 1000, # How many iterations
+           Fi = resPLSC$TExPosition.Data$fi,
+           Fj = resPLSC$TExPosition.Data$fj,
+           nf2keep = 3,
+           critical.value = 2,
+           eig = TRUE,
+           alphaLevel = .05)
+```
+
+### The Scree plot
+
+The scree plot shows us how many dimensions contribute to the variance in the data. In this plot, Dim 1 contributes more than 80% or the variance. Hence, it would be a good place to start.
+
+```{r, echo=FALSE}
+### The ScreePlot. Fixed Effects. ----
+# Get the ScreePlot
+### scree for ev ----
+PlotScree(ev = resPLSC$TExPosition.Data$eigs,
+title = 'Audio features: Inertia Scree Plot',
+          plotKaiser = TRUE, 
+  color4Kaiser = ggplot2::alpha('darkorchid4', .5),
+          lwd4Kaiser  = 2)
+# Save the plot
+a0001.Scree.ev <- recordPlot()
+### scree for sv ----
+PlotScree(ev = resPLSC$TExPosition.Data$eigs^(1/2),
+    title = 'Audio features: Singular Values Scree Plot',
+          plotKaiser = TRUE, 
+    color4Kaiser = ggplot2::alpha('darkorchid4', .5),
+          lwd4Kaiser  = 2)
+# Save the plot
+a0002.Scree.sv <- recordPlot()
+```
+
+ 
+
+```{r, echo=FALSE}
+#Colors for the graphs
+genreColors <- rawData$genre
+# get colors for graphs
+genreColors <- recode(genreColors, 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+```
+
+### Latent variable - 1
+
+In PLSC, linear combination of variables are projected as latent variables. When there are 2 data tables and both are considered the dependent variables, the goal of the analysis is to explore how much variance they share. Taking this into consideration, the "dimension" containing the first set of latent variables ideally holding most of the covariance/shared variance between the two data tables. 
+
+Below is the first set of latent variables, contribution barplots and bootstrap plots. 
+
+Also, just like PCA and all other multivariate techniques that I have dealt with so far, dinner and sleep music are tied together and workout and party are almost overlapping here. 
+
+
+```{r, echo=FALSE}
+##  Latent variables ----
+### Dimension 1 ----
+laDim = 1
+lv1.xy <- cbind(
+    resPLSC$TExPosition.Data$lx[,laDim, drop = FALSE],
+    resPLSC$TExPosition.Data$ly[,laDim, drop = FALSE])
+colnames(lv1.xy) <- 
+      c(paste0('LX',laDim),paste0('LY',laDim))
+lv1 <- createFactorMap(lv1.xy,
+   title = 'PLSC: First Pair of Latent Variables',
+                       col.points = genreColors,
+                       alpha.points = .35,
+                       col.labels = genreColors,
+                       alpha.labels = .2,
+                       display.labels = F 
+                       )
+a001.LV1 <- lv1$zeMap + 
+          xlab(paste0("X Latent Variable ", laDim)) +
+          ylab(paste0("Y Latent Variable ", laDim))
+# Add groups etc.
+# Groups in LV space
+# 
+audioMeans <- PTCA4CATA::getMeans(lv1.xy,rawData$genre)
+
+# Explicit recoding to make sure that the names match
+col4Means <- recode(rownames(audioMeans), 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+#### the map ----
+MapGroup <- PTCA4CATA::createFactorMap(audioMeans,
+           # use the constraint from the main map
+           constraints = lv1$constraints,
+           col.points = col4Means,
+           cex = 4,  # size of the dot (bigger)
+           col.labels = col4Means,
+           text.cex = 6,
+           pch = 17,
+           alpha.points = 1)
+# The map with observations and group means
+a003.lv1.withMeans <- a001.LV1 +
+    MapGroup$zeMap_dots + MapGroup$zeMap_text
+print(a003.lv1.withMeans)
+
+```
+
+### Confidence intervals generated by bootstrapping
+
+The 95% confidence intervals constructed around the means indicate the likelihood of the population mean falling within the range 95% of the times the experiment is conducted. 
+
+```{r, echo=FALSE}
+# Confidence intervals
+# 3. Boostrap for the groups in LV Space.
+# Bootstrap for CI:
+BootCube.Gr <- PTCA4CATA::Boot4Mean(lv1.xy, 
+    design = rawData$genre,
+    niter = 100,
+    suppressProgressBar = TRUE)
+# Create the ellipses
+#### Bootstrapped CI ----
+##_________________________________________________
+# Create Confidence Interval Plots
+# use function MakeCIEllipses from package PTCA4CATA
+dimnames(BootCube.Gr$BootCube)[[2]] <- c("LX1","LY1")
+GraphElli <- PTCA4CATA::MakeCIEllipses(
+                BootCube.Gr$BootCube[,1:2,],
+                names.of.factors = c("LX1","LY1"),
+                col = col4Means,
+                p.level = .95
+)
+##_________________________________________________
+# create the I-map with Observations, 
+#   means and confidence intervals
+#
+a004.lv1.withCI <-  a001.LV1 + 
+                     MapGroup$zeMap_text + 
+                     MapGroup$zeMap_dots +
+                     GraphElli
+##_________________________________________________
+# plot it!
+print(a004.lv1.withCI)
+##_________________________________________________
+
+```
+
+### Contributions - music.audio
+
+All 7 variables contribute significantly to the variance. 
+
+
+```{r, echo=FALSE}
+#### Contributions ----
+##### Ctr I-set ----
+# get the color schemes
+Fi   <- resPLSC$TExPosition.Data$fi
+col4I <- prettyGraphsColorSelection(nrow(Fi), 
+                              starting.color = 1)
+ctri <- resPLSC$TExPosition.Data$ci
+signed.ctri <- ctri * sign(Fi)
+# LV1 
+a020.plotCtri.1 <- PrettyBarPlot2(
+        bootratio = round(100*signed.ctri[,1]), 
+        threshold = 100/ nrow(signed.ctri), 
+        ylim = NULL, 
+        color4bar = gplots::col2hex(col4I),
+        color4ns = "gray75", 
+        plotnames = TRUE, 
+    main = 'Important Contributions I-set: LV1', 
+    ylab = "Signed Contributions",
+    horizontal = FALSE)
+
+print(a020.plotCtri.1)
+##_________________________________________________
+
+
+```
+
+### Contributions - music.track
+
+In the second data table, acousticness, loudness, energy, danceability, and instrumentalness contribute to most of the shared variance. 
+
+```{r, echo=FALSE}
+##### Ctr J-set ----
+# get the color schemes
+Fj   <- resPLSC$TExPosition.Data$fj
+col4J <- prettyGraphsColorSelection(nrow(Fj), 
+                          starting.color = 42)
+ctrj <- resPLSC$TExPosition.Data$cj
+signed.ctrj <- ctrj * sign(Fj)
+# LV1 
+a021.plotCtrj.1 <- PrettyBarPlot2(
+          bootratio = round(100*signed.ctrj[,1]), 
+          threshold = 100 / nrow(signed.ctrj), 
+                       ylim = NULL, 
+          color4bar = gplots::col2hex(col4J),
+                       color4ns = "gray75", 
+                       plotnames = TRUE, 
+    main = 'Important Contributions J-set: LV1', 
+    ylab = "Signed Contributions",
+    horizontal = F)
+dev.new()
+print(a021.plotCtrj.1)
+##_________________________________________________
+
+```
+
+
+
+```{r, echo=FALSE}
+#### BR ----
+##### BR I-set ----
+# get the color schemes
+# LV1 X
+a030.plotBRi.11 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.i[,1], 
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4I),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. I-set: LV1', 
+    ylab = "Bootstrap Ratios",
+    horizontal = F)
+
+print(a030.plotBRi.11)
+##_________________________________________________
+##### BR J-set ----
+# get the color schemes
+# LV1 Y
+a031.plotBRj.11 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.j[,1],
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4J),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. J-set: LV1', 
+    ylab = "Bootstrap Ratios",
+    horizontal = F)
+
+print(a031.plotBRj.11)
+
+```
+
+### Bootstrap ratio for dimension 2
+
+```{r, echo=FALSE}
+#### BR ----
+##### BR I-set ----
+# get the color schemes
+# LV1 X
+a030.plotBRi.12 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.i[,1], 
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4I),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. I-set: LV1', 
+    ylab = "Bootstrap Ratios",
+    horizontal = F)
+dev.new()
+print(a030.plotBRi.12)
+##_________________________________________________
+##### BR J-set ----
+# get the color schemes
+# LV1 Y
+a031.plotBRj.12 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.j[,1],
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4J),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. J-set: LV1', 
+    ylab = "Bootstrap Ratios",
+    horizontal = F)
+
+print(a031.plotBRj.12)
+
+```
+
+### Latent variable - 2
+
+Just to check if the latent variables constructed using the second dimension say a different story. 
+
+```{r, echo=FALSE}
+##  Latent variables ----
+### Dimension 2 ----
+laDim2 = 2
+lv2.xy <- cbind(
+    resPLSC$TExPosition.Data$lx[,laDim2, drop = FALSE],
+    resPLSC$TExPosition.Data$ly[,laDim2, drop = FALSE])
+colnames(lv2.xy) <- 
+      c(paste0('LX',laDim2),paste0('LY',laDim2))
+lv2 <- createFactorMap(lv2.xy,
+   title = 'PLSC: Second Pair of Latent Variables',
+                       col.points = genreColors,
+                       alpha.points = .35,
+                       col.labels = genreColors,
+                       alpha.labels = .2,
+                       display.labels = F 
+                       )
+a001.LV2 <- lv2$zeMap + 
+          xlab(paste0("X Latent Variable ", laDim2)) +
+          ylab(paste0("Y Latent Variable ", laDim2))
+# Add groups etc.
+# Groups in LV space
+# 
+audioMeans2 <- PTCA4CATA::getMeans(lv2.xy,rawData$genre)
+
+# Explicit recoding to make sure that the names match
+col4Means <- recode(rownames(audioMeans), 
+                     dinner = "#305ABF", 
+                     party = '#84BF30', 
+                     workout = '#BF30AD',
+                     sleep = '#30BFA7')
+#### the map ----
+MapGroup2 <- PTCA4CATA::createFactorMap(audioMeans2,
+           # use the constraint from the main map
+           constraints = lv2$constraints,
+           col.points = col4Means,
+           cex = 4,  # size of the dot (bigger)
+           col.labels = col4Means,
+           text.cex = 5,
+           pch = 17,
+           alpha.points = 1)
+# The map with observations and group means
+a003.lv2.withMeans <- a001.LV2 +
+    MapGroup2$zeMap_dots + MapGroup2$zeMap_text
+print(a003.lv2.withMeans)
+
+```
+
+### Confidence intervals generated by bootstrapping - latent variable 2
+
+```{r, echo=FALSE}
+# Confidence intervals
+# 3. Boostrap for the groups in LV Space.
+# Bootstrap for CI:
+BootCube.Gr2 <- PTCA4CATA::Boot4Mean(lv2.xy, 
+    design = rawData$genre,
+    niter = 100,
+    suppressProgressBar = TRUE)
+# Create the ellipses
+#### Bootstrapped CI ----
+##_________________________________________________
+# Create Confidence Interval Plots
+# use function MakeCIEllipses from package PTCA4CATA
+dimnames(BootCube.Gr2$BootCube)[[2]] <- c("LX2","LY2")
+GraphElli2 <- PTCA4CATA::MakeCIEllipses(
+                BootCube.Gr2$BootCube[,1:2,],
+                names.of.factors = c("LX2","LY2"),
+                col = col4Means,
+                p.level = .95
+)
+##_________________________________________________
+# create the I-map with Observations, 
+#   means and confidence intervals
+#
+a004.lv2.withCI <-  a001.LV2 + 
+                     MapGroup2$zeMap_text + 
+                     MapGroup2$zeMap_dots +
+                     GraphElli2
+##_________________________________________________
+# plot it!
+print(a004.lv2.withCI)
+##_________________________________________________
+
+```
+
+### Row factor scores - latent variable 2
+
+```{r, echo=FALSE}
+#### Contributions ----
+##### Ctr I-set ----
+# get the color schemes
+Fi2   <- resPLSC$TExPosition.Data$fi
+col4I2 <- prettyGraphsColorSelection(nrow(Fi), 
+                              starting.color = 1)
+ctri2 <- resPLSC$TExPosition.Data$ci
+signed.ctri2 <- ctri * sign(Fi)
+# LV2 
+a020.plotCtri.2 <- PrettyBarPlot2(
+        bootratio = round(100*signed.ctri[,2]), 
+        threshold = 100/ nrow(signed.ctri), 
+        ylim = NULL, 
+        color4bar = gplots::col2hex(col4I),
+        color4ns = "gray75", 
+        plotnames = TRUE, 
+    main = 'Important Contributions I-set: LV2', 
+    ylab = "Signed Contributions",
+    horizontal = F)
+
+print(a020.plotCtri.2)
+##_________________________________________________
+
+
+```
+
+### Column factor scores - latent variable 2
+
+```{r, echo=FALSE}
+##### Ctr J-set ----
+# get the color schemes
+Fj2   <- resPLSC$TExPosition.Data$fj
+col4J2 <- prettyGraphsColorSelection(nrow(Fj), 
+                          starting.color = 42)
+ctrj2 <- resPLSC$TExPosition.Data$cj
+signed.ctrj2 <- ctrj * sign(Fj)
+# LV1 
+a021.plotCtrj.2 <- PrettyBarPlot2(
+          bootratio = round(100*signed.ctrj[,2]), 
+          threshold = 100 / nrow(signed.ctrj), 
+                       ylim = NULL, 
+          color4bar = gplots::col2hex(col4J),
+                       color4ns = "gray75", 
+                       plotnames = TRUE, 
+    main = 'Important Contributions J-set: LV2', 
+    ylab = "Signed Contributions",
+    horizontal = F)
+
+print(a021.plotCtrj.2)
+##_________________________________________________
+
+```
+
+### Bootstrap ratio for dimension 1 - latent variable 2
+
+```{r, echo=FALSE}
+#### BR ----
+##### BR I-set ----
+# get the color schemes
+# LV2 X
+a030.plotBRi.21 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.i[,2], 
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4I),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. I-set: LV1', 
+    ylab = "Bootstrap Ratios", horizontal = F)
+
+print(a030.plotBRi.21)
+##_________________________________________________
+##### BR J-set ----
+# get the color schemes
+# LV2 Y
+a031.plotBRj.21 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.j[,2],
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4J),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. J-set: LV1', 
+    ylab = "Bootstrap Ratios", horizontal = F)
+
+print(a031.plotBRj.21)
+
+```
+
+### Bootstrap ratio for dimension 2 - latent variable 2
+
+```{r, echo=FALSE}
+#### BR ----
+##### BR I-set ----
+# get the color schemes
+# LV2 X
+a030.plotBRi.21 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.i[,2], 
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4I),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. I-set: LV2', 
+    ylab = "Bootstrap Ratios", horizontal = F)
+
+print(a030.plotBRi.21)
+##_________________________________________________
+##### BR J-set ----
+# get the color schemes
+# LV2 Y
+a031.plotBRj.22 <- PrettyBarPlot2(
+    bootratio = resBoot4PLSC$bootRatios.j[,2],
+    threshold = 2, 
+    ylim = NULL, 
+    color4bar = gplots::col2hex(col4J),
+    color4ns = "gray75", 
+    plotnames = TRUE, 
+    main = 'Bootstrap Ratios. J-set: LV2', 
+    ylab = "Bootstrap Ratios", horizontal = F)
+
+print(a031.plotBRj.22)
+
+```
+
+
+```{r, echo=FALSE}
+# savedList <- PTCA4CATA::saveGraph2pptx(
+#                    file2Save.pptx = "path2save",
+#                    title = "PLSC",
+#                    addGraphNames = TRUE)
+```
+
+## Summary:
+
+The latent variable explaining dimension 1 is being interpreted in this summary. The maximum contributions towards musical features are from acousticness, instrumentalness, danceability, loudness, and energy. Similarly, from music.audio which describes the audio signal features, all variables except tempo contribute significantly. 
+
+Tying the two together, it is quite an intuitive match - acousticness and instrumentalness can be described by the timbre which is indicated by MFCC, spectral roll-off/bandwidth, while danceability, loudness and energy are indicated by spectral centroids and root mean square energy. 

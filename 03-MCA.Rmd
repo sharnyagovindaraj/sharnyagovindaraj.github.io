@@ -1,0 +1,569 @@
+# Multiple Correspondence Analysis {#mca}
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE, fig.width = 15, fig.height = 15)
+#graphics.off()
+#  load the libraries that we will need
+library(Matrix)
+library(prettyGraphs)
+library(ExPosition)
+library(InPosition)
+library(DistatisR)
+library(dplyr)
+library(gridExtra)    # to save a table as a graph
+library(grid)         # that will be saved in the
+library(gtable)      # powerpoint with the figures
+library(printr)     # To pretty print tables 
+library(kableExtra) # To pretty print tables
+library(DistatisR)
+library(PTCA4CATA)
+library(data4PCCAR)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+
+```
+## Method: Multiple Correspondence Analysis
+
+Multiple correspondence analysis (MCA) is an extension of correspondence analysis (CA) which explores the pattern of relationships of categorical dependent variables. CA is technically principal component analysis when the data table is qualitative instead of quantitative. 
+
+In MCA, the dataset to be supplied is a set of nominal variables. Each level of the nominal variable is coded as 0 or 1. For example, for gender, the code for a male respondent will be 1 0. That way, the whole data table will consist of columns of 0s and 1s. Per nominal variable only 1 column can have 1. Rest should be 0. 
+
+MCA can also be run on quantitative data (such as this example). An extra step is to convert them into categorical data by binning (see sample below).
+
+The idea behind coding is that each row has a total of 1, which in CA implies that each row has the same mass
+
+_Source: Abdi, H., & Valentin, D. (2007). Multiple correspondence analysis. In N.J. Salkind (Ed.): Encyclopedia of Measurement and Statistics. Thousand Oaks (CA): Sage. pp. 651-657_
+
+## Data set: Audio features
+
+This is a dataset which describes audio features of songs in Spotify playlists. Specifically, the music.track dataset measures 165 songs on 16 variables, of which 11 are quantitative. Some of the audio features described are acousticness, danceability, and energy. 
+
+To analyze using MCA, we have to convert the data table into a categorical dataset. So, we bin the variables depending on what the histograms for each of the variables look like. 
+
+The table below shows the dataset along with the categorical variables. 
+
+```{r data_setMCA, echo=FALSE, graphs = FALSE}
+
+#Load the dataset
+hwdata <- load('audio-feature.Rdata')
+
+#Select vars of interest
+hwdata <- select(music.track, c(-id, -uri, -artist, -name, -key, -mode, -time_signature, -genre))
+
+#Create histograms to decide the binning intervals, bin the data for all vars of interest 
+#hist(hwdata$acousticness)
+
+hwdata <- hwdata %>%
+  mutate(Acous_ch = ifelse(acousticness < 0.2, "lowAc",
+                        ifelse(acousticness > 0.2 & acousticness < 0.8, "medAc",
+                               ifelse(acousticness > 0.8, "highAc", "NA"))))
+
+#hist(hwdata$danceability)
+
+hwdata <- hwdata %>%
+  mutate(Dance_ch = ifelse(danceability < 0.4, "lowDance",
+                           ifelse(danceability > 0.4 & danceability < 0.7, "medDance",
+                                  ifelse(danceability > 0.7, "highDance", "NA"))))
+
+#This chunk customizes the numbers on x-axis (instead of 3e+5, it shows the actual value in 000's or whatever you want)
+
+#hist(hwdata$duration_ms, axes = F)
+#axis(2)
+#ticks <- axTicks(1)
+#labels_in_thousands <- paste0((ticks/1e6)*1000, "K")
+#axis(1,at=ticks,labels=labels_in_thousands)
+
+hwdata <- hwdata %>%
+  mutate(Dur_ch = ifelse(duration_ms < 150000, "lowDur",
+                           ifelse(duration_ms > 150000 & duration_ms < 300000, "medDur",
+                                  ifelse(duration_ms > 300000, "highDur", "NA"))))
+
+#hist(hwdata$energy)
+
+hwdata <- hwdata %>%
+  mutate(Ener_ch = ifelse(energy < 0.3, "lowEner",
+                           ifelse(energy > 0.3 & energy < 0.7, "medEner",
+                                  ifelse(energy > 0.7, "highEner", "NA"))))
+
+#hist(hwdata$instrumentalness)
+
+hwdata <- hwdata %>%
+  mutate(Ins_ch = ifelse(instrumentalness < 0.2, "lowIns",
+                           ifelse(instrumentalness > 0.2 & instrumentalness < 0.8, "medIns",
+                                  ifelse(instrumentalness > 0.8, "highIns", "NA"))))
+
+#hist(hwdata$liveness)
+
+hwdata <- hwdata %>%
+  mutate(Live_ch = ifelse(liveness < 0.2, "lowLiv",
+                           ifelse(liveness > 0.2 & liveness < 0.6, "medLiv",
+                                  ifelse(liveness > 0.6, "highLiv", "NA"))))
+
+#hist(hwdata$loudness)
+
+hwdata <- hwdata %>%
+  mutate(Loud_ch = ifelse(loudness < -20, "lowLoud",
+                           ifelse(loudness > -20 & loudness < -10, "medLoud",
+                                  ifelse(loudness > -10, "highLoud", "NA"))))
+
+#hist(hwdata$speechiness)
+
+hwdata <- hwdata %>%
+  mutate(Speech_ch = ifelse(speechiness < 0.1, "lowSpeech",
+                          ifelse(speechiness > .1, "highSpeech", "NA")))
+
+#hist(hwdata$tempo)
+
+hwdata <- hwdata %>%
+  mutate(Tempo_ch = ifelse(tempo < 100, "lowTem",
+                          ifelse(tempo > 100 & tempo < 140, "medTem",
+                                 ifelse(tempo > 140, "highTem", "NA"))))
+
+#hist(hwdata$valence)
+
+hwdata <- hwdata %>%
+  mutate(Val_ch = ifelse(valence < 0.3, "lowVal",
+                           ifelse(valence > 0.3 & valence < 0.6, "medVal",
+                                  ifelse(valence > 0.6, "highVal", "NA"))))
+
+hwdata <- na.omit(hwdata)
+
+#Generate clean table before removing quant vars so people understand what you show!
+
+inputforscroll <- kable(hwdata)
+
+scroll_box(inputforscroll, height = "250px")
+
+#Remove the quant vars and keep only categorical vars
+
+hwdata <- select(hwdata, c(-acousticness, -danceability, -duration_ms, -energy, -instrumentalness, -liveness, -loudness, -speechiness, 
+                           -tempo, -valence))
+
+
+```
+
+### Sample binning of data
+
+Here are two examples of how the data was binned. Based on the histogram, the speechiness variable was divided into two groups - low and high speechiness. On the other hand, the tempo histogram had more scope to be finely divided, hence three categories - low, medium, and high tempos. 
+
+```{r, echo=FALSE, graphs = TRUE}
+
+hwdata2 <- music.track
+
+hist(hwdata2$speechiness)
+
+hwdata2 <- hwdata2 %>%
+  mutate(Speech_ch = ifelse(speechiness < 0.1, "lowSpeech",
+                          ifelse(speechiness > .1, "highSpeech", "NA")))
+
+hist(hwdata2$tempo)
+
+hwdata2 <- hwdata2 %>%
+  mutate(Tempo_ch = ifelse(tempo < 100, "lowTem",
+                          ifelse(tempo > 100 & tempo < 140, "medTem",
+                                 ifelse(tempo > 140, "highTem", "NA"))))
+```
+
+### Analysis
+
+```{r analysisMCA, echo=TRUE, results = 'hide'}
+resMCA <- epMCA(hwdata, graphs = FALSE) 
+
+resMCA.inf <- epMCA.inference.battery(hwdata, 
+                                      graphs = FALSE)
+```
+
+### Scree plot
+
+The scree plot is used to determine how many of the dimensions could be interpreted based on the amount of variance that is contributed to the dataset. As per this plot, Component 1 is explaining about 85% of the variance, while dimension 2 explains about 10%. The purple dots are the significant dimensions worth taking a look at based on inferential MCA.
+
+```{r screePlotMCA, echo=FALSE}
+
+## ----screeMCA.inf  -------------------
+factoextra::fviz_screeplot(resMCA, addlabels =TRUE, main = "MCA: Explained Variance per Dimension")
+b0001b.Scree <- recordPlot() # Save the plot
+
+## ----colors------------------------------------------
+cJ <- resMCA$ExPosition.Data$cj
+color4Var <- prettyGraphs::prettyGraphsColorSelection(
+  ncol(hwdata))
+```
+  
+### The pseudo-correlation heatmap
+
+We can use this representation of the data to compare with plots generated while conducting a Principal Component Analysis. It is called a "pseudo" correlation because the numbers are not directly calculated but have to be derived from the contingency tables. 
+
+```{r pseudo-correlation plot, results = T, echo = FALSE}
+corrMatBurt.list <- phi2Mat4BurtTable(hwdata)
+col <- colorRampPalette(
+  c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA", "#060661"))
+
+corr4MCA.r <- corrplot::corrplot(
+  as.matrix(corrMatBurt.list$phi2.mat^(1/2)), 
+  method="color", col=col(200),  
+  type="upper", 
+  addCoef.col = "black", # Add coefficient of correlation
+  tl.col = color4Var, 
+  tl.cex = 0.8,
+  tl.srt = 45, #Text label color and rotation
+  number.cex = .9,
+  number.font = 4,
+  diag = TRUE # needed to have the color of variables correct
+)
+# dev.new()
+a0000.corMat.phi <- recordPlot()
+```
+
+
+```{r varContMCA, echo = FALSE, graphs=FALSE}
+# # ## ----ctrVar --------
+varCtr <- data4PCCAR::ctr4Variables(cJ)
+# rownames(color4Var) <- rownames(varCtr)
+# 
+# ## ----ctrVar.Tab ---------
+# nFact <- min(5, ncol(cJ) - 1)
+# ## ----printr ------------
+# # As an alternative we print the contributions with a combination
+# #of `kable` and `printr` as:
+# 
+#  knitr::kable(round(varCtr[,1:nFact]*1000), caption = 'Variable Contributions')%>%
+#    kable_styling(latex_options = c("striped", "hold_position"), full_width = F) %>%
+#    add_header_above(c(" ", "Dimensions" = nFact))
+# dev.new()
+# a0000.2.ctrTable  <- recordPlot()
+```
+
+### Variable contributions
+
+In Dimension 1, the variables contribute to the inertia as outlined in the barplot below. 
+
+```{r varCont1MCA, echo=FALSE}
+## ----color4Levels ------
+col4Levels <- data4PCCAR::coloringLevels(
+  rownames(resMCA$ExPosition.Data$fj), color4Var)
+col4Labels <- col4Levels$color4Levels
+
+## ----ctrV1-----------------------
+varCtr1 <- varCtr[,1]
+names(varCtr1) <- rownames(varCtr)
+a0005.Var.ctr1  <- PrettyBarPlot2(varCtr1,
+                                  main = 'Variable Contributions: Dimension 1',
+                                  ylim = c(-.05, 1.2*max(varCtr1)),
+                                  font.size = 5,
+                                  threshold = 1 / nrow(varCtr),
+                                  color4bar = gplots::col2hex(color4Var)
+)
+print(a0005.Var.ctr1)
+
+```
+
+In Dimension 2, the variables contribute to the inertia as outlined in the barplot below. 
+
+```{r varCont2MCA, echo=FALSE}
+## ----ctrV2 -------
+varCtr2 <- varCtr[,2]
+names(varCtr2) <- rownames(varCtr)
+a0006.Var.ctr2  <- PrettyBarPlot2(varCtr2,
+                                  main = 'Variable Contributions: Dimension 2',
+                                  ylim = c(-.05, 1.2*max(varCtr2)),
+                                  threshold = 1 / nrow(varCtr),
+                                  font.size = 5,
+                                  color4bar = gplots::col2hex(color4Var)
+)
+print(a0006.Var.ctr2)
+```
+
+### Factor scores
+
+The variable factor scores indicate how closely related the columns are to each other. Further, we can also see which variables contribute relatively more to the inertia in a particular dimension. 
+
+```{r factor scoresMCA, echo=FALSE}
+## ----ctrV12----------------------------------------
+ctrV12 <- PTCA4CATA::createFactorMap(X =  varCtr, 
+                                     title = "Variable Contributions", 
+                                     col.points = color4Var,
+                                     col.labels = color4Var,
+                                     alpha.points = 0.5,
+                                     cex = 2.5, 
+                                     alpha.labels = 1, 
+                                     text.cex = 4,
+                                     font.face = "plain", 
+                                     font.family = "sans")
+
+ctr.labels <- createxyLabels.gen(
+  1,2, lambda = resMCA$ExPosition.Data$eigs,
+  tau = resMCA$ExPosition.Data$t
+)
+a0007.Var.ctr12  <- ctrV12$zeMap  + ctr.labels
+
+print(a0007.Var.ctr12)
+
+```
+
+Among all the factor scores, the ones that are important are colored and the others are grayed out in the following plot. 
+
+
+```{r, echo=FALSE}
+library(Rcpp)
+
+## ----getCtr12------------------------------
+absCtrVar <- as.matrix(varCtr) %*% 
+  diag(resMCA$ExPosition.Data$eigs)
+varCtr12  <- (absCtrVar[,1] + absCtrVar[,2]) / 
+  (resMCA$ExPosition.Data$eigs[1] + 
+     resMCA$ExPosition.Data$eigs[2])
+importantVar <- (varCtr12 >=  1 / length(varCtr12))
+col4ImportantVar <- color4Var
+col4NS <- 'gray90' 
+col4ImportantVar[!importantVar] <- col4NS
+
+## ----ctrV12.ns-----------------------------------------------------------
+ctrV12.imp <- PTCA4CATA::createFactorMap(X =  varCtr, 
+                                         title = "Important Variables: Contributions", 
+                                         col.points = col4ImportantVar,
+                                         col.labels = col4ImportantVar,
+                                         alpha.points = 0.5,
+                                         cex = 2.5, 
+                                         alpha.labels = 1, 
+                                         text.cex = 4,
+                                         font.face = "plain", 
+                                         font.family = "sans")
+a0008.Var.ctr12.imp  <- ctrV12.imp$zeMap  + ctr.labels
+#
+print(a0008.Var.ctr12.imp)
+
+```
+
+### Pseudo Bootstrap ratios
+
+The following barplots show pseudo bootstrap ratios for all the variables. 
+
+Dimension 1:
+
+```{r, echo=FALSE, results=T}
+## ----BR4var--------------------------------------------------------------
+# Get the pseudo Bootstrap Rqtios
+BrLevels <- resMCA.inf$Inference.Data$fj.boots$tests$boot.ratios
+wJ       <- 1 / resMCA.inf$Fixed.Data$ExPosition.Data$W
+nIter    <- 10000
+Br4Variables <- data4PCCAR::BR4varMCA(BrLevels, wJ, nIter) 
+
+## ----BR41----------------------------------------------------------------
+VarBR1 <- Br4Variables$pseudoBR.pos[,1]
+c0010.Var.br1  <- PrettyBarPlot2(VarBR1,
+                                 main = 'Variable Pseudo Bootstrap Ratios: Dimension 1',
+                                 ylim = 2,
+                                 threshold = 2,
+                                 font.size = 5,
+                                 color4bar = gplots::col2hex(color4Var)
+)
+print(c0010.Var.br1)
+
+```
+
+Dimension 2:
+
+```{r, echo=FALSE, results=T}
+
+## ----BR42---------------------
+VarBR2 <- Br4Variables$pseudoBR.pos[,2]
+c0011.Var.br2  <- PrettyBarPlot2(VarBR2,
+                                 main = 'Variable Pseudo Bootstrap Ratios: Dimension 2',
+                                 ylim = 2,
+                                 threshold = 2,
+                                 font.size = 5,
+                                 color4bar = gplots::col2hex(color4Var)
+)
+print(c0011.Var.br2)
+```
+
+### Important variables and their contribution to the dataset
+
+Going another step, we can plot the levels of the variables along the dimensions to understand more about what exactly in the variables are important. There is no single trend for how the variables vary from lower to higher levels along the dimensions. 
+
+```{r, echo=FALSE}
+## ----createFjMap---------------------------------------------------------
+axis1 = 1
+axis2 = 2
+Fj <- resMCA$ExPosition.Data$fj
+# generate the set of maps
+BaseMap.Fj <- createFactorMap(X = Fj , # J- Factor scores,
+                              axis1 = axis1, axis2 = axis2,
+                              title = 'MCA. Variables', 
+                              col.points = col4Labels, 
+                              cex = 1,
+                              col.labels = col4Labels, 
+                              text.cex = 2.5,
+                              force = 2)
+# add labels
+labels4MCA <- createxyLabels.gen(x_axis = axis1, 
+                                 y_axis = axis2,
+                                 lambda = resMCA$ExPosition.Data$eigs,
+                                 tau = resMCA$ExPosition.Data$t)
+# make the maps
+b0002.BaseMap.Fj <- BaseMap.Fj$zeMap + labels4MCA 
+b0003.BaseMapNoDot.Fj  <- BaseMap.Fj$zeMap_background +
+  BaseMap.Fj$zeMap_text + labels4MCA 
+
+## ----basemap Fj ----
+print(b0002.BaseMap.Fj)
+```
+
+Important variable levels (connected by lines):
+
+_The other variables are in grayscale_
+
+```{r grid_ctrJMCA, echo = F}
+## ----mapJ-grey --------------------
+col4Levels.imp <- data4PCCAR::coloringLevels(rownames(Fj),
+                                             col4ImportantVar)
+BaseMap.Fj.imp <- createFactorMap(X = Fj, # Fj
+                                  axis1 = axis1, axis2 = axis2,
+                                  title = 'MCA. Important Variables', 
+                                  col.points = col4Levels.imp$color4Levels, 
+                                  cex = 1,
+                                  col.labels = col4Levels.imp$color4Levels, 
+                                  text.cex = 2.5,
+                                  force = 2)
+
+b0010.BaseMap.Fj <- BaseMap.Fj.imp$zeMap + labels4MCA 
+print(b0010.BaseMap.Fj)
+
+## ----adLines--------------------
+lines4J <- addLines4MCA(Fj, 
+                        col4Var = col4Levels.imp$color4Variables, 
+                        size = .7)
+b0020.BaseMap.Fj <-  b0010.BaseMap.Fj + lines4J
+print( b0020.BaseMap.Fj)
+
+## ----someLines -------------------------
+zeNames          <- getVarNames(rownames(Fj)) 
+importantsLabels <- zeNames$stripedNames %in% zeNames$variableNames[importantVar]
+Fj.imp <- Fj[importantsLabels,]
+lines4J.imp <- addLines4MCA(Fj.imp, 
+                            col4Var = col4Levels$color4Variables[which(importantVar)], 
+                            size = .9, linetype = 3, alpha = .5)
+b0021.BaseMap.Fj <-  b0020.BaseMap.Fj + lines4J.imp
+print( b0021.BaseMap.Fj)
+```
+
+### Bootstrap ratios for Dimension 1
+
+```{r BR1MCA, results = T, echo = FALSE}
+## ----BR1-----------------------------------------------------------------
+
+c0001.Levels.BR  <- PrettyBarPlot2(
+  resMCA.inf$Inference.Data$fj.boots$tests$boot.ratios[,1], # BR
+  main = 'Bootstrap Ratios for Columns : Dimension 1',
+  threshold = 2,
+  color4bar = gplots::col2hex(col4Labels),
+  horizontal = F
+)
+print(c0001.Levels.BR)
+```
+
+### Plot of the observations
+
+In this plot, the observations are grouped by genre (sleep, dinner, party, workout). Confidence intervals generated by bootstrapping are marked as ellipsis around the group means. The tolerance intervals are marked around the means. Along dimension 1, we see that party and workout almost overlap entirely with each other, while being separated from dinner and sleep. Similar to PCA, dinner and sleep songs are closer to each other and farther apart from party and workout songs. 
+
+```{r FiMapMCA, results = T, echo = FALSE, graphs=TRUE}
+
+## ----createFiMap -----------------
+Fi <- resMCA$ExPosition.Data$fi
+colCity <- c("#305ABF","#84BF30","#BF30AD","#30BFA7")
+nI <- nrow(Fi)
+col4I.City <- rep("",nI)
+
+for (i in 1:length(colCity) ){
+  lindex <- music.track[,'genre'] %in% unique(music.track[,'genre'])[i]
+  col4I.City[lindex] <- colCity[i]
+}
+# generate the set of maps
+BaseMap.Fi <- createFactorMap(X = Fi , # resMCA$ExPosition.Data$fj,
+                              axis1 = axis1, axis2 = axis2,
+                              title = 'MCA. Observations (by genre)', 
+                              col.points = col4I.City,
+                              alpha.points = .6, cex = 1.2,
+                              col.labels = col4I.City,
+                              text.cex = 2.5, 
+                              force = 2,
+                              display.labels = FALSE)
+# make the maps
+d0001.BaseMapNoLabels.Fi  <- BaseMap.Fi$zeMap_background +
+  BaseMap.Fi$zeMap_dots + 
+  labels4MCA 
+
+## ----plotaMapi, fig.width= 8---------------------------------------------
+#print(d0001.BaseMapNoLabels.Fi)
+
+## ----Boot4CI-------------------------------------------------------------
+# Bootstrap for CI:
+BootCube.Gr <- PTCA4CATA::Boot4Mean(resMCA$ExPosition.Data$fi, 
+                                    design = music.track$genre,
+                                    niter = 100,
+                                    suppressProgressBar = TRUE)
+songsMeans <- PTCA4CATA::getMeans(resMCA$ExPosition.Data$fi, music.track$genre)
+colCity <- c("#305ABF","#84BF30","#BF30AD","#30BFA7")
+MapGroup <- PTCA4CATA::createFactorMap(songsMeans,
+                                       # use the constraint from the main map
+                                       constraints = BaseMap.Fi$constraints,
+                                       col.points = colCity,
+                                       cex = 3,  # size of the dot (bigger)
+                                       col.labels = colCity,
+                                       text.cex = 4,
+                                       display.labels = T,
+                                       alpha.points = 1,
+                                       pch = 17
+                                       )
+d002.Map.I.withMeans <- d0001.BaseMapNoLabels.Fi  +
+  MapGroup$zeMap_dots 
+#print(d002.Map.I.withMeans)
+
+## ----graphElli-----------------------------------------------------------
+GraphElli <- PTCA4CATA::MakeCIEllipses(BootCube.Gr$BootCube[,1:2,],
+                                       names.of.factors = c("Dimension 1","Dimension 2"),
+                                       col = colCity,
+                                       p.level = .95)
+d003.Map.I.withCI <-  d002.Map.I.withMeans + 
+  MapGroup$zeMap_text +  GraphElli
+print(d003.Map.I.withCI)
+
+## ----TI------------------------------------------------------------------
+GraphTI.Hull <- PTCA4CATA::MakeToleranceIntervals(resMCA$ExPosition.Data$fi,
+                                                  design = as.factor(music.track$genre),
+                                                  # line below is needed
+                                                  names.of.factors =  c("Dim1","Dim2"), # needed 
+                                                  col = colCity,
+                                                  line.size = .50, 
+                                                  line.type = 3,
+                                                  alpha.ellipse = .2,
+                                                  alpha.line    = .4,
+                                                  p.level       = .75
+                                                
+                                                  )
+#_____________________________________________________________________
+# Create the map:
+d005.Map.I.withTIHull <- d0001.BaseMapNoLabels.Fi  +
+  GraphTI.Hull + MapGroup$zeMap_dots +
+  MapGroup$zeMap_text + MapGroup$zeMap_dots
+#_____________________________________________________________________
+# plot it
+# dev.new()
+print(d005.Map.I.withTIHull)
+```
+
+
+
+```{r, echo = FALSE}
+# savedList <- PTCA4CATA::saveGraph2pptx(
+#                    file2Save.pptx = "MCA",
+#                    title = "PLSC",
+#                    addGraphNames = TRUE)
+```
+
+## Summary
+
+* Dimension 1: Loudness, Acousticness, Energy, Danceability, and Instrumentalness contribute the most to dimension 1. These closely correspond to Party and Workout songs.
+* Dimension 2: Dinner songs are quite different from party and workout songs, most explained by Duration and Loudness. 
